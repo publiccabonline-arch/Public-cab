@@ -1,0 +1,2541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Public Cab - Customer, Driver &amp; Service App</title>
+  <meta name="theme-color" content="#facc15" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Public Cab" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <!-- Leaflet GPS Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Firebase v9 Compat SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #e5e7eb;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      margin: 0;
+      padding: 0;
+    }
+    .app-container {
+      max-width: 480px;
+      margin: 0 auto;
+      background: #ffffff;
+      min-height: 100dvh;
+      position: relative;
+      box-shadow: 0 0 25px rgba(0, 0, 0, 0.14);
+      padding-bottom: 82px;
+      overflow-x: hidden;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    #gps-map, #driver-gps-map {
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    .leaflet-control-attribution {
+      display: none !important;
+    }
+    @keyframes pulseRing {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.75); }
+      70% { transform: scale(1); box-shadow: 0 0 0 12px rgba(250, 204, 21, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); }
+    }
+    .pulse-dot {
+      animation: pulseRing 1.6s infinite;
+    }
+  </style>
+
+  <!-- Public Cab PWA dynamic manifest -->
+  <script id="publiccab-pwa-manifest">
+    (function () {
+      const manifestData = {
+        name: "Public Cab & Services",
+        short_name: "PublicCab",
+        start_url: "./",
+        scope: "./",
+        display: "standalone",
+        display_override: ["window-controls-overlay", "standalone", "minimal-ui"],
+        background_color: "#111111",
+        theme_color: "#facc15",
+        icons: [
+          { src: "https://cdn-icons-png.flaticon.com/512/3202/3202061.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "https://cdn-icons-png.flaticon.com/512/3202/3202061.png", sizes: "512x512", type: "image/png", purpose: "any" }
+        ]
+      };
+      const blob = new Blob([JSON.stringify(manifestData)], { type: "application/manifest+json" });
+      const url = URL.createObjectURL(blob);
+      const old = document.querySelector('link[data-publiccab-manifest]');
+      if (old) old.remove();
+      const link = document.createElement("link");
+      link.rel = "manifest";
+      link.href = url;
+      link.setAttribute("data-publiccab-manifest", "true");
+      document.head.appendChild(link);
+      document.documentElement.style.backgroundColor = manifestData.background_color;
+    })();
+  </script>
+  <meta name="theme-color" content="#facc15">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+</head>
+<body onclick="unlockAudioOnce()">
+
+  <!-- Custom Floating Toast Notification -->
+  <div id="toast-alert" class="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] hidden w-[92%] max-w-[420px] bg-gray-900 text-white border-l-4 border-yellow-400 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 transition-all">
+    <i class="fa-solid fa-bell text-yellow-400 text-lg shrink-0"></i>
+    <div class="flex-1 text-xs">
+      <p id="toast-title" class="font-bold text-yellow-400 text-sm">Notification</p>
+      <p id="toast-body" class="text-gray-200 mt-0.5 leading-snug"></p>
+    </div>
+    <button onclick="hideToast()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+
+  <!-- Custom Modal Dialog for Info/Confirmations -->
+  <div id="info-modal" class="fixed inset-0 z-[9990] hidden bg-black/70 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl space-y-3 text-center">
+      <div class="w-12 h-12 rounded-full bg-yellow-100 text-yellow-600 mx-auto flex items-center justify-center text-xl">
+        <i class="fa-solid fa-circle-info"></i>
+      </div>
+      <h3 id="info-modal-title" class="font-extrabold text-gray-900 text-base">Information</h3>
+      <p id="info-modal-msg" class="text-xs text-gray-600 leading-relaxed"></p>
+      <button onclick="document.getElementById('info-modal').classList.add('hidden')" class="w-full bg-gray-900 text-yellow-400 font-bold py-2.5 rounded-xl text-sm">OK</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="app">
+
+    <!-- ==================== TOP HEADER & ROLE SWITCHER ==================== -->
+    <header class="bg-yellow-400 text-gray-900 px-3.5 py-3 sticky top-0 z-50 shadow-md flex justify-between items-center">
+      <div class="flex items-center gap-2.5">
+        <!-- 5-Click Secret Trigger on Company Logo -->
+        <div onclick="handleLogoClick()" id="header-logo-box" class="bg-gray-900 text-yellow-400 w-10 h-10 rounded-xl font-bold flex items-center justify-center cursor-pointer overflow-hidden shadow active:scale-95 transition">
+          <img id="header-logo-img" src="" alt="Logo" class="hidden w-full h-full object-cover" />
+          <i id="header-logo-icon" class="fa-solid fa-taxi text-lg"></i>
+        </div>
+        <div>
+          <h1 id="header-app-name" class="font-extrabold text-base leading-tight tracking-tight">Public Cab</h1>
+          <p class="text-[11px] font-semibold text-gray-800" id="header-subtitle">Customer Mode</p>
+        </div>
+      </div>
+
+      <!-- Right Controls: Voice Replay + Customer / Driver Switcher -->
+      <div class="flex items-center gap-1.5">
+        <button onclick="playWelcomeAnnouncement(true)" title="Play Voice Info" class="w-8 h-8 rounded-full bg-gray-900 text-yellow-400 flex items-center justify-center text-xs shadow active:scale-95">
+          <i class="fa-solid fa-volume-high"></i>
+        </button>
+        <div class="bg-gray-900 p-1 rounded-full flex items-center text-[11px] font-bold shadow-inner">
+          <button onclick="switchRole('customer')" id="btn-customer" class="px-3 py-1.5 rounded-full bg-yellow-400 text-gray-900 transition">Customer</button>
+          <button onclick="switchRole('driver')" id="btn-driver" class="px-3 py-1.5 rounded-full text-white transition">Driver</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- PWA Install Banner -->
+    <div id="install-banner" class="bg-gray-900 text-white px-3.5 py-2 flex justify-between items-center text-xs border-b border-gray-800">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-mobile-screen-button text-yellow-400 text-base"></i>
+        <span>Install Web Application on your Mobile</span>
+      </div>
+      <button onclick="installPWAApp()" id="install-btn" class="bg-yellow-400 text-gray-900 font-extrabold px-3 py-1 rounded-lg text-[11px] shadow active:scale-95">Install</button>
+    </div>
+
+    <!-- Admin Customer Alarm / Notice Bar -->
+    <div id="customer-alarm-bar" class="hidden bg-red-600 text-white px-3.5 py-2 flex items-center justify-between text-xs font-bold shadow">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-bell fa-shake text-yellow-300"></i>
+        <span id="customer-alarm-text">Important Service Alert!</span>
+      </div>
+      <button onclick="playCustomerAlarmAudio()" class="bg-white text-red-700 text-[10px] font-extrabold px-2 py-0.5 rounded">Listen</button>
+    </div>
+
+    <!-- Service Operating Hours Status Strip -->
+    <div id="service-hours-bar" class="bg-gray-100 border-b border-gray-200 px-3.5 py-1.5 flex items-center justify-between text-[11px]">
+      <span id="cab-hours-status" class="font-bold text-green-700"><i class="fa-solid fa-clock mr-1"></i> Cab Service: Open (03:30 AM - 12:10 AM)</span>
+      <span class="font-extrabold text-red-600">Ambulance: 24/7</span>
+    </div>
+
+    <!-- Admin Dynamic Promotional Banner & External Website Ad Bar -->
+    <div id="promo-banner-wrapper" class="hidden px-3 pt-2.5 space-y-2">
+      <div id="custom-poster-box" class="hidden rounded-xl overflow-hidden shadow border border-gray-200 relative">
+        <img id="custom-poster-img" src="" alt="Banner" class="w-full h-28 object-cover" />
+      </div>
+      <a id="external-ad-link" href="#" target="_blank" rel="noopener noreferrer" class="hidden block bg-gradient-to-r from-gray-900 to-slate-800 text-white p-2.5 rounded-xl shadow flex items-center justify-between border border-yellow-400/50">
+        <div class="flex items-center gap-2.5 overflow-hidden">
+          <span class="bg-yellow-400 text-gray-900 text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase shrink-0">AD</span>
+          <p id="external-ad-text" class="text-xs font-semibold truncate">Click here to view special offer</p>
+        </div>
+        <i class="fa-solid fa-arrow-up-right-from-square text-yellow-400 text-xs shrink-0 ml-2"></i>
+      </a>
+    </div>
+
+    <!-- ==================== 1. CUSTOMER VIEW (HOME) ==================== -->
+    <main id="customer-view" class="block">
+
+      <!-- Customer Simple Login Strip (Name + Phone, No OTP) -->
+      <div id="cust-login-strip" class="mx-3 mt-2.5 bg-yellow-50 border border-yellow-300 rounded-xl p-2.5 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-full bg-gray-900 text-yellow-400 flex items-center justify-center text-xs font-bold">
+            <i class="fa-solid fa-user"></i>
+          </div>
+          <div>
+            <p id="cust-display-name" class="text-xs font-extrabold text-gray-900">Guest User (Please Login)</p>
+            <p id="cust-display-phone" class="text-[11px] text-gray-600">Enter Name &amp; Phone to book rides</p>
+          </div>
+        </div>
+        <button onclick="openCustomerLoginModal()" id="cust-login-btn" class="bg-gray-900 text-yellow-400 text-[11px] font-bold px-3 py-1.5 rounded-lg">
+          Login
+        </button>
+      </div>
+
+      <!-- Real Interactive GPS Map (Shows Live Route & Ride Progress) -->
+      <div class="relative h-56 mx-3 mt-2.5 rounded-2xl overflow-hidden border border-gray-300 shadow-inner bg-gray-200">
+        <div id="gps-map"></div>
+        <!-- Recenter GPS Button -->
+        <button onclick="detectDeviceGPS(true)" title="Current GPS Location" class="absolute bottom-3 right-3 z-[400] w-9 h-9 rounded-full bg-gray-900 text-yellow-400 shadow-lg flex items-center justify-center active:scale-90">
+          <i class="fa-solid fa-location-crosshairs"></i>
+        </button>
+        <div class="absolute top-2 left-2 z-[400] bg-white/95 backdrop-blur px-2.5 py-1 rounded-full text-[10px] font-bold text-gray-800 shadow flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-green-500 pulse-dot"></span>
+          <span id="gps-status-pill">GPS Live</span>
+        </div>
+        <!-- Map Phase Indicator -->
+        <div id="cust-map-phase-pill" class="hidden absolute bottom-3 left-3 z-[400] bg-gray-900/95 text-yellow-400 px-3 py-1 rounded-full text-[10px] font-extrabold shadow-lg">
+          Driver En Route
+        </div>
+      </div>
+
+      <!-- Booking Panel -->
+      <div class="p-3.5 space-y-3.5">
+        <!-- Pickup & Drop Location Inputs with Live Autocomplete -->
+        <div class="bg-gray-50 p-3 rounded-2xl border border-gray-200 space-y-2.5 shadow-sm relative">
+          <!-- Pickup Input -->
+          <div class="relative">
+            <div class="flex items-center gap-2.5">
+              <i class="fa-solid fa-circle-dot text-green-600 text-sm"></i>
+              <input type="text" id="pickup-loc" oninput="searchLocationAutocomplete(this.value, 'pickup')" placeholder="Enter Pickup Location or tap GPS" class="w-full bg-transparent text-xs font-semibold text-gray-900 focus:outline-none border-b border-gray-200 pb-1.5" />
+              <button onclick="detectDeviceGPS(true)" class="text-[10px] bg-yellow-400/40 text-gray-900 font-bold px-2 py-0.5 rounded shrink-0">GPS</button>
+            </div>
+            <div id="pickup-suggestions" class="hidden absolute left-5 right-0 top-7 z-[600] bg-white border border-gray-300 rounded-xl shadow-xl max-h-40 overflow-y-auto text-xs"></div>
+          </div>
+
+          <!-- Drop Input -->
+          <div class="relative">
+            <div class="flex items-center gap-2.5">
+              <i class="fa-solid fa-location-dot text-red-600 text-sm"></i>
+              <input type="text" id="drop-loc" oninput="searchLocationAutocomplete(this.value, 'drop')" placeholder="Where to? Search nearby destination..." class="w-full bg-transparent text-xs font-semibold text-gray-900 focus:outline-none" />
+            </div>
+            <div id="drop-suggestions" class="hidden absolute left-5 right-0 top-7 z-[600] bg-white border border-gray-300 rounded-xl shadow-xl max-h-40 overflow-y-auto text-xs"></div>
+          </div>
+        </div>
+
+        <!-- Vehicle Selection (Bike, Toto, Cab, Parcel) -->
+        <div>
+          <div class="flex justify-between items-center mb-2">
+            <h2 class="text-xs font-extrabold text-gray-600 uppercase">Select Vehicle</h2>
+            <span class="text-[11px] font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded" id="est-distance-label">Distance: 2.0 km</span>
+          </div>
+          <div class="grid grid-cols-4 gap-2 text-center">
+            <div onclick="selectVehicle('Bike', this)" id="vcard-Bike" class="vehicle-card border-2 border-yellow-400 bg-yellow-50 p-2 rounded-xl cursor-pointer transition">
+              <i class="fa-solid fa-motorcycle text-xl text-gray-900 mb-1"></i>
+              <p class="text-xs font-extrabold">Bike</p>
+              <p class="text-[11px] text-gray-700 font-bold" id="vfare-Bike">₹30</p>
+            </div>
+            <div onclick="selectVehicle('Toto', this)" id="vcard-Toto" class="vehicle-card border border-gray-200 bg-white p-2 rounded-xl cursor-pointer transition">
+              <i class="fa-solid fa-shuttle-van text-xl text-gray-800 mb-1"></i>
+              <p class="text-xs font-extrabold">Toto</p>
+              <p class="text-[11px] text-gray-600 font-bold" id="vfare-Toto">₹40</p>
+            </div>
+            <div onclick="selectVehicle('Cab', this)" id="vcard-Cab" class="vehicle-card border border-gray-200 bg-white p-2 rounded-xl cursor-pointer transition">
+              <i class="fa-solid fa-car text-xl text-gray-800 mb-1"></i>
+              <p class="text-xs font-extrabold">Cab</p>
+              <p class="text-[11px] text-gray-600 font-bold" id="vfare-Cab">₹90</p>
+            </div>
+            <div onclick="selectVehicle('Parcel', this)" id="vcard-Parcel" class="vehicle-card border border-gray-200 bg-white p-2 rounded-xl cursor-pointer transition">
+              <i class="fa-solid fa-box-open text-xl text-gray-800 mb-1"></i>
+              <p class="text-xs font-extrabold">Parcel</p>
+              <p class="text-[11px] text-gray-600 font-bold" id="vfare-Parcel">₹36</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Automatic Kilometer-Based Fare Summary Box (Fixed System Fare, No Manual Offer) -->
+        <div class="flex items-center justify-between bg-gray-900 text-white px-3.5 py-2.5 rounded-xl shadow-sm">
+          <div>
+            <span class="text-[10px] uppercase tracking-wider text-gray-400 block font-bold">Auto Distance Fare</span>
+            <span class="text-xs font-bold text-gray-200" id="fare-breakdown-text">2.0 km × ₹15/km</span>
+          </div>
+          <div class="text-right">
+            <span class="text-lg font-extrabold text-yellow-400" id="auto-fare-display">₹30</span>
+          </div>
+        </div>
+
+        <!-- Book Now Button -->
+        <button onclick="bookRide()" id="book-btn" class="w-full bg-gray-900 text-yellow-400 font-extrabold py-3.5 rounded-xl shadow-lg active:scale-95 transition flex justify-center items-center gap-2 text-sm">
+          <span>Book Ride Now (₹30)</span>
+          <i class="fa-solid fa-arrow-right"></i>
+        </button>
+
+        <!-- Active Ride Status Box (Customer) -->
+        <div id="customer-ride-status" class="hidden bg-white border-2 border-yellow-400 p-3.5 rounded-2xl shadow-lg space-y-3">
+          <div class="flex justify-between items-center border-b border-gray-100 pb-2">
+            <span class="bg-yellow-400 text-gray-900 text-[11px] px-2.5 py-0.5 rounded-full font-extrabold" id="ride-badge">Searching for Driver...</span>
+            <!-- Cancel Button: Visible ONLY while searching, hidden once accepted -->
+            <button id="cust-cancel-btn" onclick="cancelRide()" class="text-xs bg-red-100 text-red-600 font-bold px-2.5 py-1 rounded-lg">
+              Cancel Ride
+            </button>
+          </div>
+
+          <p class="text-xs font-bold text-gray-800" id="ride-details-text"></p>
+
+          <!-- Live Step Progress Indicator for Customer -->
+          <div id="cust-ride-stepper" class="hidden grid grid-cols-3 gap-1 text-center text-[10px] font-extrabold">
+            <div id="step-accepted" class="py-1.5 rounded-lg bg-green-600 text-white">1. Accepted</div>
+            <div id="step-arrived" class="py-1.5 rounded-lg bg-gray-200 text-gray-600">2. Arrived</div>
+            <div id="step-started" class="py-1.5 rounded-lg bg-gray-200 text-gray-600">3. On Trip</div>
+          </div>
+
+          <!-- Driver Details Card (Shown immediately when Driver Accepts) -->
+          <div id="accepted-driver-card" class="hidden bg-gray-900 text-white p-3 rounded-xl space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <img id="acc-drv-photo" src="https://placehold.co/80x80/facc15/111827?text=Driver" class="w-12 h-12 rounded-full object-cover border-2 border-yellow-400" />
+                <div>
+                  <p class="text-sm font-extrabold text-yellow-400" id="acc-drv-name">Driver Name</p>
+                  <p class="text-[11px] text-gray-300" id="acc-drv-veh">Vehicle No: WB 52 AB 1234</p>
+                  <p class="text-[11px] text-green-400 font-bold mt-0.5"><i class="fa-solid fa-clock"></i> Status: <span id="acc-drv-eta">Arriving in 4 mins</span></p>
+                </div>
+              </div>
+              <a id="acc-drv-call" href="tel:0000000000" class="w-10 h-10 rounded-full bg-green-500 text-white flex items-center justify-center shadow-lg">
+                <i class="fa-solid fa-phone"></i>
+              </a>
+            </div>
+            <div class="bg-yellow-400/15 border border-yellow-400/40 rounded-lg px-2.5 py-1.5 text-[10px] text-yellow-200 font-semibold">
+              <i class="fa-solid fa-shield-check text-yellow-400 mr-1"></i> Verify Vehicle Number, Driver Photo &amp; Company Sticker before boarding.
+            </div>
+          </div>
+
+          <p class="text-[11px] text-gray-600" id="driver-assigned-info">Please wait while we connect you with a verified driver in your selected category.</p>
+
+          <!-- Live Chat Box between Customer & Driver -->
+          <div id="cust-chat-section" class="border-t border-gray-200 pt-2.5">
+            <p class="text-[11px] font-extrabold text-gray-700 mb-1.5"><i class="fa-solid fa-comments text-yellow-500"></i> Live Chat with Driver</p>
+            <div id="cust-chat-messages" class="bg-gray-100 rounded-xl p-2 h-28 overflow-y-auto space-y-1.5 text-xs mb-2"></div>
+            <div class="flex gap-1.5">
+              <input type="text" id="cust-chat-input" placeholder="Type a message..." class="flex-1 bg-gray-100 border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none" />
+              <button onclick="sendChatMessage('customer')" class="bg-gray-900 text-yellow-400 px-3 py-1.5 rounded-lg text-xs font-bold">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ==================== 2. AMBULANCE 24/7 VIEW ==================== -->
+    <main id="ambulance-view" class="hidden p-4 space-y-4">
+      <div class="bg-red-600 text-white p-4 rounded-2xl shadow-lg flex items-center justify-between">
+        <div>
+          <span class="bg-white text-red-600 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase">24/7 Always Open</span>
+          <h2 class="text-lg font-extrabold mt-1">Emergency Ambulance Service</h2>
+          <p class="text-xs text-red-100">24 Hours Non-Stop Rapid Medical Transport</p>
+        </div>
+        <i class="fa-solid fa-truck-medical text-4xl text-white/90"></i>
+      </div>
+
+      <div class="bg-white border border-gray-200 p-3.5 rounded-2xl shadow-sm space-y-3">
+        <div>
+          <label class="text-xs font-bold text-gray-700">Patient Pickup Location</label>
+          <input type="text" id="amb-pickup" placeholder="Enter current address or landmark" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-700">Destination Hospital (Drop)</label>
+          <input type="text" id="amb-drop" placeholder="Enter hospital name or address" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-700">Ambulance Category</label>
+          <select id="amb-type" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-bold">
+            <option value="Normal Ambulance (₹500)">Normal Ambulance - ₹500</option>
+            <option value="Oxygen Ambulance (₹800)">Oxygen Support Ambulance - ₹800</option>
+            <option value="ICU / Ventilator Ambulance (₹1800)">ICU / Ventilator Ambulance - ₹1800</option>
+          </select>
+        </div>
+        <button onclick="bookSpecialCategory('Ambulance')" class="w-full bg-red-600 hover:bg-red-700 text-white font-extrabold py-3.5 rounded-xl shadow-lg text-sm flex items-center justify-center gap-2">
+          <i class="fa-solid fa-truck-medical"></i> Book Emergency Ambulance (24/7)
+        </button>
+      </div>
+    </main>
+
+    <!-- ==================== 3. LORRY / GOODS TRANSPORT VIEW ==================== -->
+    <main id="lorry-view" class="hidden p-4 space-y-4">
+      <div class="bg-gray-900 text-white p-4 rounded-2xl shadow-lg flex items-center justify-between border-b-4 border-yellow-400">
+        <div>
+          <span class="bg-yellow-400 text-gray-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full">Goods &amp; Cargo</span>
+          <h2 class="text-lg font-extrabold mt-1 text-yellow-400">Lorry &amp; Goods Transport</h2>
+          <p class="text-xs text-gray-300">Book mini trucks &amp; heavy lorries for shifting or cargo</p>
+        </div>
+        <i class="fa-solid fa-truck text-4xl text-yellow-400"></i>
+      </div>
+
+      <div class="bg-white border border-gray-200 p-3.5 rounded-2xl shadow-sm space-y-3">
+        <div>
+          <label class="text-xs font-bold text-gray-700">Loading Point (Pickup)</label>
+          <input type="text" id="lorry-pickup" placeholder="Enter pickup address" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-700">Unloading Point (Drop)</label>
+          <input type="text" id="lorry-drop" placeholder="Enter destination address" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-700">Select Lorry Capacity</label>
+          <select id="lorry-type" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-bold">
+            <option value="Tata Ace / Chota Hathi (₹450)">Tata Ace / Mini Truck (750 kg) - ₹450</option>
+            <option value="Pickup Van 8ft (₹750)">Pickup Van 8ft (1.5 Ton) - ₹750</option>
+            <option value="14ft Medium Lorry (₹1500)">14ft Medium Lorry (3.5 Ton) - ₹1500</option>
+            <option value="Heavy Truck 10 Wheeler (₹3500)">Heavy Truck 10 Wheeler - ₹3500</option>
+          </select>
+        </div>
+        <button onclick="bookSpecialCategory('Lorry')" class="w-full bg-gray-900 text-yellow-400 font-extrabold py-3.5 rounded-xl shadow-lg text-sm flex items-center justify-center gap-2">
+          <i class="fa-solid fa-truck-moving"></i> Book Lorry Now
+        </button>
+      </div>
+    </main>
+
+    <!-- ==================== 4. SERVICE VIEW (SHOP & MECHANIC) ==================== -->
+    <main id="service-view" class="hidden p-4 space-y-3.5">
+      <div class="bg-gray-900 text-white p-3.5 rounded-2xl flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-extrabold text-yellow-400">Local Shops &amp; Mechanics</h2>
+          <p class="text-[11px] text-gray-300" id="service-timing-badge">Hours: 09:30 AM - 09:30 PM</p>
+        </div>
+        <button onclick="openProviderAuthModal()" class="bg-yellow-400 text-gray-900 text-[11px] font-extrabold px-3 py-2 rounded-xl shadow">
+          + Register / Login
+        </button>
+      </div>
+
+      <!-- Two Mode Sub-Tabs: Shop vs Mechanic -->
+      <div class="grid grid-cols-2 gap-2 bg-gray-200 p-1 rounded-xl">
+        <button onclick="switchServiceSubTab('Shop')" id="subtab-shop" class="py-2 rounded-lg bg-yellow-400 text-gray-900 font-extrabold text-xs shadow">
+          <i class="fa-solid fa-store mr-1"></i> Shop
+        </button>
+        <button onclick="switchServiceSubTab('Mechanic')" id="subtab-mechanic" class="py-2 rounded-lg text-gray-700 font-extrabold text-xs">
+          <i class="fa-solid fa-wrench mr-1"></i> Mechanic
+        </button>
+      </div>
+
+      <!-- Service Closed Notice Banner (When outside Shop/Mechanic hours) -->
+      <div id="service-closed-notice" class="hidden bg-amber-100 border border-amber-400 text-amber-900 px-3 py-2 rounded-xl text-xs font-bold text-center">
+        <i class="fa-solid fa-clock mr-1"></i> Shops &amp; Mechanics are currently closed. Available from <span id="svc-open-time-text">09:30 AM</span> to <span id="svc-close-time-text">09:30 PM</span>.
+      </div>
+
+      <!-- Logged-In Provider Subscription Dashboard Banner -->
+      <div id="logged-provider-bar" class="hidden bg-blue-50 border border-blue-300 p-3 rounded-xl space-y-2">
+        <div class="flex justify-between items-center">
+          <div>
+            <p class="text-xs font-extrabold text-blue-900" id="prov-bar-title">My Profile</p>
+            <p class="text-[11px] text-blue-700" id="prov-bar-status">Checking status...</p>
+          </div>
+          <div class="flex gap-1.5">
+            <button onclick="openSubscriptionModalForCurrentProvider()" class="bg-yellow-400 text-gray-900 text-[11px] font-extrabold px-2.5 py-1 rounded-lg shadow">Check / Subscribe</button>
+            <button onclick="logoutProvider()" class="bg-gray-200 text-gray-700 text-[11px] font-bold px-2 py-1 rounded-lg">Logout</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dynamic List of Approved Shops or Mechanics -->
+      <div id="service-listings-container" class="space-y-3">
+        <div class="text-center text-xs text-gray-500 py-8">Loading...</div>
+      </div>
+    </main>
+
+    <!-- ==================== 5. HISTORY VIEW ==================== -->
+    <main id="history-view" class="hidden p-4 space-y-3">
+      <h2 class="text-base font-extrabold text-gray-900"><i class="fa-solid fa-clock-rotate-left text-yellow-500 mr-1.5"></i> My Ride History</h2>
+      <div id="customer-history-list" class="space-y-2.5">
+        <div class="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center text-xs text-gray-500">
+          No recent ride history found.
+        </div>
+      </div>
+    </main>
+
+    <!-- ==================== 6. DRIVER PARTNER VIEW ==================== -->
+    <main id="driver-view" class="hidden p-3.5 space-y-3.5">
+
+      <!-- Permanent Driver Legal & Safety Warning Banner -->
+      <div class="bg-red-950 text-white border-2 border-red-500 p-3 rounded-2xl shadow-md space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-extrabold text-yellow-400 uppercase"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Mandatory Driver Legal Notice</span>
+          <button onclick="playDriverWarningAudio()" class="bg-yellow-400 text-gray-900 text-[10px] font-extrabold px-2 py-0.5 rounded"><i class="fa-solid fa-volume-high"></i> Audio</button>
+        </div>
+        <p class="text-[11px] text-gray-200 leading-snug">
+          Any illegal activity or misconduct will lead to strict police action. Operating any vehicle other than your registered vehicle number or without official Company Stickers is strictly prohibited by law.
+        </p>
+      </div>
+
+      <!-- Driver Not Logged In: Login / Registration Screen -->
+      <div id="driver-auth-box" class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3">
+        <div class="flex gap-2 bg-gray-100 p-1 rounded-xl">
+          <button onclick="toggleDriverAuthMode('login')" id="drv-tab-login" class="flex-1 py-2 rounded-lg bg-gray-900 text-yellow-400 text-xs font-extrabold">Driver Login</button>
+          <button onclick="toggleDriverAuthMode('register')" id="drv-tab-reg" class="flex-1 py-2 rounded-lg text-gray-700 text-xs font-extrabold">New Registration</button>
+        </div>
+
+        <!-- Driver Login Form -->
+        <div id="driver-login-form" class="space-y-2.5">
+          <input type="tel" id="drv-login-phone" placeholder="Driver Phone Number" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 text-xs font-semibold" />
+          <input type="password" id="drv-login-pass" placeholder="Password / PIN" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 text-xs font-semibold" />
+          <button onclick="loginDriver()" class="w-full bg-gray-900 text-yellow-400 font-extrabold py-3 rounded-xl text-xs shadow">Login to Driver Panel</button>
+        </div>
+
+        <!-- Driver Registration Form -->
+        <div id="driver-register-form" class="hidden space-y-2.5">
+          <input type="text" id="drv-reg-name" placeholder="Driver Full Name" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+          <input type="tel" id="drv-reg-phone" placeholder="Phone Number (Login ID)" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+          <input type="password" id="drv-reg-pass" placeholder="Create Password" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+          <select id="drv-reg-category" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-bold">
+            <option value="Bike">Category: Bike</option>
+            <option value="Toto">Category: Toto / Auto</option>
+            <option value="Cab">Category: Cab</option>
+            <option value="Parcel">Category: Parcel Delivery</option>
+            <option value="Ambulance">Category: Ambulance (24/7)</option>
+            <option value="Lorry">Category: Lorry / Cargo</option>
+          </select>
+          <input type="text" id="drv-reg-vehno" placeholder="Registered Vehicle Number (e.g. WB 52 AC 4419)" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase" />
+          <div class="grid grid-cols-2 gap-2">
+            <label class="bg-gray-100 border border-dashed border-gray-400 rounded-xl p-2 text-center cursor-pointer text-[11px]">
+              <i class="fa-solid fa-camera text-gray-700 text-base block mb-1"></i>
+              <span id="drv-photo-label" class="font-bold">Driver Photo</span>
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'drvPhotoBase64', 'drv-photo-label')" class="hidden" />
+            </label>
+            <label class="bg-gray-100 border border-dashed border-gray-400 rounded-xl p-2 text-center cursor-pointer text-[11px]">
+              <i class="fa-solid fa-id-card text-gray-700 text-base block mb-1"></i>
+              <span id="drv-nid-label" class="font-bold">National ID Card</span>
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, 'drvNidBase64', 'drv-nid-label')" class="hidden" />
+            </label>
+          </div>
+          <button onclick="registerDriver()" class="w-full bg-yellow-400 text-gray-900 font-extrabold py-3 rounded-xl text-xs shadow">Submit Registration</button>
+        </div>
+      </div>
+
+      <!-- Driver Logged In Dashboard -->
+      <div id="driver-dashboard-box" class="hidden space-y-3.5">
+        <!-- Profile & Duty Card -->
+        <div class="bg-gray-900 text-white p-3.5 rounded-2xl shadow-md space-y-2.5">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center gap-2.5">
+              <img id="drv-dash-photo" src="https://placehold.co/80x80/facc15/111827?text=D" class="w-11 h-11 rounded-full object-cover border-2 border-yellow-400" />
+              <div>
+                <h3 class="text-sm font-extrabold text-yellow-400" id="drv-dash-name">Driver Name</h3>
+                <p class="text-[11px] text-gray-300"><span id="drv-dash-cat" class="bg-gray-800 px-1.5 py-0.5 rounded font-bold">Bike</span> • <span id="drv-dash-veh">WB-00</span></p>
+              </div>
+            </div>
+            <div class="text-right">
+              <label class="inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="duty-toggle" class="sr-only peer" checked onchange="toggleDuty()" />
+                <div class="w-12 h-6 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500 relative"></div>
+              </label>
+              <p class="text-[10px] font-extrabold mt-0.5 text-green-400" id="duty-text">ONLINE</p>
+            </div>
+          </div>
+
+          <!-- Earnings & Subscription Status Bar -->
+          <div class="flex items-center justify-between pt-2 border-t border-gray-800 text-xs">
+            <div>
+              <span class="text-gray-400 text-[10px] block">Today's Earnings</span>
+              <span class="text-base font-extrabold text-yellow-400" id="driver-earnings">₹0.00</span>
+            </div>
+            <div id="drv-sub-status-box" class="flex items-center gap-1.5">
+              <span id="drv-sub-badge" class="text-[11px] text-green-400 font-bold"><i class="fa-solid fa-circle-check"></i> Active</span>
+              <button onclick="openSubscriptionModalForDriver()" class="bg-yellow-400 text-gray-900 text-[10px] font-extrabold px-2 py-1 rounded">Check</button>
+            </div>
+            <button onclick="logoutDriver()" class="text-[11px] text-red-400 underline font-bold">Logout</button>
+          </div>
+        </div>
+
+        <!-- Pending Approval Alert -->
+        <div id="drv-pending-alert" class="hidden bg-amber-100 border border-amber-400 text-amber-900 p-3 rounded-xl text-xs font-bold text-center">
+          <i class="fa-solid fa-hourglass-half mr-1"></i> Your Driver ID is pending Admin approval. You will receive ride requests once approved.
+        </div>
+
+        <!-- Subscription Required Block Banner (With "Check" Button) -->
+        <div id="drv-sub-blocked-alert" class="hidden bg-red-50 border-2 border-red-500 p-3 rounded-xl flex items-center justify-between">
+          <div>
+            <p class="text-xs font-extrabold text-red-700"><i class="fa-solid fa-lock mr-1"></i> Subscription Required</p>
+            <p class="text-[11px] text-red-600">Activate your subscription plan to accept rides and earn.</p>
+          </div>
+          <button onclick="openSubscriptionModalForDriver()" class="bg-red-600 text-white text-xs font-extrabold px-3 py-1.5 rounded-lg shadow shrink-0">
+            Check
+          </button>
+        </div>
+
+        <!-- Driver Live GPS Map (Shows Pickup & Drop when Ride Active) -->
+        <div id="driver-map-wrapper" class="hidden relative h-44 rounded-2xl overflow-hidden border border-gray-300 shadow">
+          <div id="driver-gps-map"></div>
+          <a id="google-maps-nav-btn" href="https://www.google.com/maps" target="_blank" class="absolute bottom-2.5 right-2.5 z-[400] bg-blue-600 text-white text-xs font-extrabold px-3 py-2 rounded-xl shadow-lg flex items-center gap-1.5">
+            <i class="fa-solid fa-diamond-turn-right"></i> Google Maps Navigate
+          </a>
+        </div>
+
+        <!-- Incoming Category-Matched Ride Requests -->
+        <div>
+          <h3 class="text-xs font-extrabold text-gray-700 mb-2 flex items-center gap-1.5">
+            <i class="fa-solid fa-bell text-yellow-500"></i> Incoming Ride Requests (<span id="drv-cat-filter-label">Bike</span>)
+          </h3>
+
+          <div id="no-requests-box" class="bg-gray-50 border border-dashed border-gray-300 p-6 rounded-xl text-center text-gray-500 text-xs">
+            <i class="fa-solid fa-radar text-2xl mb-2 text-gray-400"></i>
+            <p>No active ride requests in your category right now.</p>
+          </div>
+
+          <div id="driver-requests-list" class="space-y-3"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ==================== BOTTOM NAVIGATION BAR (6 ITEMS) ==================== -->
+    <nav class="fixed bottom-0 w-full max-w-[480px] bg-white border-t border-gray-200 grid grid-cols-6 py-2 text-[10px] font-extrabold text-gray-600 z-50 shadow-[0_-2px_10px_rgba(0,0,0,0.06)]">
+      <button onclick="showMainTab('home')" id="nav-home" class="nav-tab-btn flex flex-col items-center text-yellow-600">
+        <i class="fa-solid fa-house text-base mb-0.5"></i>
+        <span>Home</span>
+      </button>
+      <button onclick="showMainTab('ambulance')" id="nav-ambulance" class="nav-tab-btn flex flex-col items-center hover:text-red-600">
+        <i class="fa-solid fa-truck-medical text-base mb-0.5 text-red-500"></i>
+        <span>Ambulance</span>
+      </button>
+      <button onclick="showMainTab('lorry')" id="nav-lorry" class="nav-tab-btn flex flex-col items-center hover:text-gray-900">
+        <i class="fa-solid fa-truck text-base mb-0.5"></i>
+        <span>Lorry</span>
+      </button>
+      <button onclick="showMainTab('service')" id="nav-service" class="nav-tab-btn flex flex-col items-center hover:text-gray-900">
+        <i class="fa-solid fa-screwdriver-wrench text-base mb-0.5 text-blue-600"></i>
+        <span>Service</span>
+      </button>
+      <button onclick="showMainTab('history')" id="nav-history" class="nav-tab-btn flex flex-col items-center hover:text-gray-900">
+        <i class="fa-solid fa-clock-rotate-left text-base mb-0.5"></i>
+        <span>History</span>
+      </button>
+      <a href="tel:9609546435" class="flex flex-col items-center hover:text-green-700">
+        <i class="fa-solid fa-headset text-base mb-0.5 text-green-600"></i>
+        <span>Support</span>
+      </a>
+    </nav>
+
+  </div>
+
+  <!-- ======================================================================= -->
+  <!-- MODAL 1: CUSTOMER NORMAL LOGIN (Name + Phone, No OTP)                   -->
+  <!-- ======================================================================= -->
+  <div id="cust-login-modal" class="fixed inset-0 z-[9000] hidden bg-black/75 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-sm rounded-2xl p-5 space-y-3.5 shadow-2xl">
+      <div class="flex justify-between items-center">
+        <h3 class="font-extrabold text-base text-gray-900">Customer Login</h3>
+        <button onclick="document.getElementById('cust-login-modal').classList.add('hidden')" class="text-gray-500"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-xs text-gray-500">Quick login with your Name and Phone Number. No OTP required.</p>
+      <input type="text" id="cust-input-name" placeholder="Enter your full name" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 text-xs font-semibold" />
+      <input type="tel" id="cust-input-phone" placeholder="Enter mobile number" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 text-xs font-semibold" />
+      <button onclick="saveCustomerLogin()" class="w-full bg-gray-900 text-yellow-400 font-extrabold py-3 rounded-xl text-xs">Complete Login</button>
+    </div>
+  </div>
+
+  <!-- ======================================================================= -->
+  <!-- MODAL 2: SHOP / MECHANIC REGISTRATION & LOGIN                           -->
+  <!-- ======================================================================= -->
+  <div id="provider-auth-modal" class="fixed inset-0 z-[9000] hidden bg-black/75 flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white w-full max-w-sm rounded-2xl p-5 space-y-3 shadow-2xl my-auto">
+      <div class="flex justify-between items-center">
+        <h3 class="font-extrabold text-base text-gray-900">Shop / Mechanic Portal</h3>
+        <button onclick="document.getElementById('provider-auth-modal').classList.add('hidden')" class="text-gray-500"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="grid grid-cols-2 gap-2 bg-gray-100 p-1 rounded-xl">
+        <button onclick="switchProviderModalTab('login')" id="pm-tab-login" class="py-1.5 rounded-lg bg-gray-900 text-yellow-400 text-xs font-bold">Login</button>
+        <button onclick="switchProviderModalTab('register')" id="pm-tab-reg" class="py-1.5 rounded-lg text-gray-700 text-xs font-bold">New Registration</button>
+      </div>
+
+      <!-- Provider Login -->
+      <div id="pm-login-form" class="space-y-2.5">
+        <input type="tel" id="pm-login-phone" placeholder="Registered Phone Number" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 text-xs font-semibold" />
+        <input type="password" id="pm-login-pass" placeholder="Password" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 text-xs font-semibold" />
+        <button onclick="loginServiceProvider()" class="w-full bg-gray-900 text-yellow-400 font-extrabold py-3 rounded-xl text-xs">Login Now</button>
+      </div>
+
+      <!-- Provider Registration -->
+      <div id="pm-reg-form" class="hidden space-y-2">
+        <div class="bg-amber-50 border border-amber-300 p-2 rounded-lg text-[11px] text-amber-900 font-bold">
+          <i class="fa-solid fa-key mr-1"></i> Important: Remember your Phone Number &amp; Password for future login and subscription renewal.
+        </div>
+        <select id="pm-reg-type" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-bold">
+          <option value="Shop">Category: Shop</option>
+          <option value="Mechanic">Category: Mechanic</option>
+        </select>
+        <input type="text" id="pm-reg-name" placeholder="Shop or Mechanic Name" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        <input type="text" id="pm-reg-details" placeholder="Description of shop items or repair skills" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        <input type="text" id="pm-reg-address" placeholder="Full Address / Area" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        <input type="tel" id="pm-reg-phone" placeholder="Phone Number (Login ID)" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        <input type="password" id="pm-reg-pass" placeholder="Create Password" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+        <label class="block bg-gray-100 border border-dashed border-gray-400 rounded-xl p-2 text-center cursor-pointer text-xs">
+          <i class="fa-solid fa-image mr-1"></i> <span id="pm-photo-label" class="font-bold">Upload Shop / Work Photo</span>
+          <input type="file" accept="image/*" onchange="handleImageUpload(this, 'provPhotoBase64', 'pm-photo-label')" class="hidden" />
+        </label>
+        <button onclick="registerServiceProvider()" class="w-full bg-yellow-400 text-gray-900 font-extrabold py-3 rounded-xl text-xs">Submit Profile</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================================= -->
+  <!-- MODAL 3: SUBSCRIPTION PAYMENT & UPI PROOF MODAL                         -->
+  <!-- ======================================================================= -->
+  <div id="subscription-modal" class="fixed inset-0 z-[9200] hidden bg-black/80 flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white w-full max-w-sm rounded-2xl p-5 space-y-3 shadow-2xl my-auto">
+      <div class="flex justify-between items-center border-b pb-2">
+        <h3 class="font-extrabold text-base text-gray-900"><i class="fa-solid fa-crown text-yellow-500 mr-1"></i> Subscription Plans</h3>
+        <button onclick="document.getElementById('subscription-modal').classList.add('hidden')" class="text-gray-500"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <p class="text-xs text-gray-600">Category: <strong id="sub-modal-cat" class="text-gray-900">Bike</strong></p>
+
+      <!-- 1 Day, 7 Days, 1 Month Plan Selector -->
+      <div class="grid grid-cols-3 gap-2 text-center" id="sub-plan-cards">
+        <div onclick="selectSubDuration('1d')" id="plan-card-1d" class="border-2 border-yellow-400 bg-yellow-50 p-2 rounded-xl cursor-pointer">
+          <p class="text-[11px] font-bold text-gray-600">1 Day</p>
+          <p class="text-sm font-extrabold text-gray-900" id="sub-price-1d">₹20</p>
+        </div>
+        <div onclick="selectSubDuration('7d')" id="plan-card-7d" class="border border-gray-200 p-2 rounded-xl cursor-pointer">
+          <p class="text-[11px] font-bold text-gray-600">7 Days</p>
+          <p class="text-sm font-extrabold text-gray-900" id="sub-price-7d">₹100</p>
+        </div>
+        <div onclick="selectSubDuration('1m')" id="plan-card-1m" class="border border-gray-200 p-2 rounded-xl cursor-pointer">
+          <p class="text-[11px] font-bold text-gray-600">1 Month</p>
+          <p class="text-sm font-extrabold text-gray-900" id="sub-price-1m">₹350</p>
+        </div>
+      </div>
+
+      <!-- Admin UPI ID & QR Scanner Display -->
+      <div class="bg-gray-900 text-white p-3 rounded-xl text-center space-y-2">
+        <p class="text-[11px] text-gray-300">Pay via UPI ID or Scan QR Code below</p>
+        <img id="sub-upi-qr-img" src="https://placehold.co/160x160/ffffff/111827?text=UPI+QR" class="w-32 h-32 mx-auto rounded-lg bg-white p-1 object-contain" />
+        <div class="flex items-center justify-center gap-2 bg-gray-800 py-1.5 px-3 rounded-lg">
+          <span id="sub-upi-id-text" class="text-xs font-extrabold text-yellow-400">publiccab@upi</span>
+          <button onclick="copyUpiId()" class="text-[10px] bg-yellow-400 text-gray-900 font-bold px-2 py-0.5 rounded">Copy</button>
+        </div>
+      </div>
+
+      <!-- UTR Number & Screenshot Proof Submission -->
+      <input type="text" id="sub-utr-input" placeholder="Enter 12-digit UTR / Transaction ID" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+      <label class="block bg-gray-100 border border-dashed border-gray-400 rounded-xl p-2 text-center cursor-pointer text-xs">
+        <i class="fa-solid fa-receipt mr-1"></i> <span id="sub-proof-label" class="font-bold">Upload Payment Screenshot</span>
+        <input type="file" accept="image/*" onchange="handleImageUpload(this, 'subProofBase64', 'sub-proof-label')" class="hidden" />
+      </label>
+      <button onclick="submitSubscriptionProof()" class="w-full bg-green-600 text-white font-extrabold py-3 rounded-xl text-xs shadow">Submit Payment Proof</button>
+    </div>
+  </div>
+
+  <!-- ======================================================================= -->
+  <!-- MODAL 4: ADMIN PASSWORD PROMPT & FULL ADMIN PANEL (5 Clicks on Logo)    -->
+  <!-- ======================================================================= -->
+  <div id="admin-auth-modal" class="fixed inset-0 z-[9500] hidden bg-black/80 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-xs rounded-2xl p-5 space-y-3 shadow-2xl text-center">
+      <div class="w-12 h-12 rounded-full bg-gray-900 text-yellow-400 mx-auto flex items-center justify-center text-xl">
+        <i class="fa-solid fa-shield-halved"></i>
+      </div>
+      <h3 class="font-extrabold text-base text-gray-900">Admin Panel Access</h3>
+      <input type="password" id="admin-pass-input" placeholder="Enter Admin Password" class="w-full bg-gray-100 border border-gray-300 rounded-xl px-3 py-2.5 text-center text-sm font-bold" />
+      <div class="grid grid-cols-2 gap-2">
+        <button onclick="document.getElementById('admin-auth-modal').classList.add('hidden')" class="bg-gray-200 text-gray-800 font-bold py-2.5 rounded-xl text-xs">Cancel</button>
+        <button onclick="verifyAdminLogin()" class="bg-gray-900 text-yellow-400 font-extrabold py-2.5 rounded-xl text-xs">Enter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full Screen Admin Dashboard Overlay -->
+  <div id="admin-panel-overlay" class="fixed inset-0 z-[9600] hidden bg-gray-100 flex flex-col max-w-[480px] mx-auto shadow-2xl">
+    <header class="bg-gray-900 text-white px-4 py-3 flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-user-shield text-yellow-400 text-lg"></i>
+        <h2 class="font-extrabold text-sm text-yellow-400">Public Cab Admin Panel</h2>
+      </div>
+      <button onclick="document.getElementById('admin-panel-overlay').classList.add('hidden')" class="bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">Close</button>
+    </header>
+
+    <!-- Admin Tabs (5 Tabs including Timing & Alarm) -->
+    <div class="bg-white border-b border-gray-200 grid grid-cols-5 text-[10px] font-extrabold text-center shrink-0">
+      <button onclick="switchAdminTab('approvals')" id="admtab-approvals" class="py-2.5 border-b-2 border-yellow-500 text-gray-900">Approvals</button>
+      <button onclick="switchAdminTab('timing')" id="admtab-timing" class="py-2.5 text-gray-500">Timings</button>
+      <button onclick="switchAdminTab('subs')" id="admtab-subs" class="py-2.5 text-gray-500">Plans</button>
+      <button onclick="switchAdminTab('branding')" id="admtab-branding" class="py-2.5 text-gray-500">Logo &amp; Ads</button>
+      <button onclick="switchAdminTab('all')" id="admtab-all" class="py-2.5 text-gray-500">All List</button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto p-3.5 space-y-4">
+
+      <!-- ADMIN TAB 1: APPROVALS -->
+      <div id="admin-sec-approvals" class="space-y-4">
+        <div>
+          <h4 class="text-xs font-extrabold text-gray-700 uppercase mb-2">Pending Driver Registrations</h4>
+          <div id="admin-pending-drivers" class="space-y-2 text-xs"></div>
+        </div>
+        <div>
+          <h4 class="text-xs font-extrabold text-gray-700 uppercase mb-2">Pending Shops &amp; Mechanics</h4>
+          <div id="admin-pending-providers" class="space-y-2 text-xs"></div>
+        </div>
+        <div>
+          <h4 class="text-xs font-extrabold text-gray-700 uppercase mb-2">Pending Subscription Payments (UTR)</h4>
+          <div id="admin-pending-subs" class="space-y-2 text-xs"></div>
+        </div>
+      </div>
+
+      <!-- ADMIN TAB 2: SERVICE TIMINGS, 24H OVERRIDE & CUSTOMER ALARM -->
+      <div id="admin-sec-timing" class="hidden space-y-3 text-xs">
+        <!-- Cab Operating Hours & 24-Hour Master Switch -->
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2.5 shadow-sm">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="font-extrabold text-gray-900">Cab Schedule Restriction</p>
+              <p class="text-[11px] text-gray-500">Turn OFF switch to run Cab service 24 Hours</p>
+            </div>
+            <label class="inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="adm-cab-schedule-toggle" checked class="sr-only peer" />
+              <div class="w-12 h-6 bg-gray-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500 relative"></div>
+            </label>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] font-bold text-gray-500">Cab Open Time</label>
+              <input type="time" id="adm-cab-open" value="03:30" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-2.5 py-2 font-bold" />
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-gray-500">Cab Close Time</label>
+              <input type="time" id="adm-cab-close" value="00:10" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-2.5 py-2 font-bold" />
+            </div>
+          </div>
+          <p class="text-[10px] text-green-700 font-bold"><i class="fa-solid fa-truck-medical mr-1"></i> Ambulance service remains open 24 Hours automatically.</p>
+        </div>
+
+        <!-- Shop & Mechanic Separate Timing -->
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2.5 shadow-sm">
+          <p class="font-extrabold text-gray-900">Shop &amp; Mechanic Operating Hours</p>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] font-bold text-gray-500">Available From (Morning)</label>
+              <input type="time" id="adm-svc-open" value="09:30" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-2.5 py-2 font-bold" />
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-gray-500">Closing Time (Night)</label>
+              <input type="time" id="adm-svc-close" value="21:30" class="w-full mt-1 bg-gray-50 border border-gray-300 rounded-xl px-2.5 py-2 font-bold" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Customer Alarm / Live Alert Broadcast -->
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2.5 shadow-sm">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="font-extrabold text-gray-900">Customer Alarm / Alert Banner</p>
+              <p class="text-[11px] text-gray-500">Display live alert bar &amp; alarm for customers</p>
+            </div>
+            <label class="inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="adm-alarm-toggle" class="sr-only peer" />
+              <div class="w-12 h-6 bg-gray-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600 relative"></div>
+            </label>
+          </div>
+          <input type="text" id="adm-alarm-msg" placeholder="Enter Customer Alarm Message (e.g. Service closes at 12:10 AM)" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 font-semibold" />
+        </div>
+
+        <button onclick="saveAdminTimingsAndAlarm()" class="w-full bg-gray-900 text-yellow-400 font-extrabold py-3 rounded-xl shadow">
+          Save Timings &amp; Alarm Settings
+        </button>
+      </div>
+
+      <!-- ADMIN TAB 3: SUBSCRIPTION MASTER SWITCH & CATEGORY PRICING -->
+      <div id="admin-sec-subs" class="hidden space-y-3">
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 flex items-center justify-between shadow-sm">
+          <div>
+            <p class="text-xs font-extrabold text-gray-900">Subscription System (ON / OFF)</p>
+            <p class="text-[11px] text-gray-500">When OFF, all drivers, shops &amp; mechanics run free</p>
+          </div>
+          <label class="inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="admin-sub-master-toggle" onchange="toggleMasterSubscription()" class="sr-only peer" />
+            <div class="w-12 h-6 bg-gray-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600 relative"></div>
+          </label>
+        </div>
+
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2.5 shadow-sm">
+          <h4 class="text-xs font-extrabold text-gray-800">Category Subscription Prices (₹: 1d / 7d / 1m)</h4>
+          <div id="admin-category-prices-form" class="space-y-2 text-xs"></div>
+          <button onclick="saveAdminSubscriptionPrices()" class="w-full bg-gray-900 text-yellow-400 font-extrabold py-2.5 rounded-xl text-xs">Save All Plan Prices</button>
+        </div>
+      </div>
+
+      <!-- ADMIN TAB 4: BRANDING, COMPANY LOGO, UPI QR & ADS -->
+      <div id="admin-sec-branding" class="hidden space-y-3">
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2">
+          <h4 class="text-xs font-extrabold text-gray-900">Company Logo (Updates App Install Icon)</h4>
+          <input type="text" id="adm-app-title" value="Public Cab" placeholder="Company / App Name" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+          <label class="block bg-gray-100 border border-dashed border-gray-400 rounded-xl p-2.5 text-center cursor-pointer text-xs">
+            <i class="fa-solid fa-upload mr-1"></i> <span id="adm-logo-label" class="font-bold">Upload Company Logo</span>
+            <input type="file" accept="image/*" onchange="handleImageUpload(this, 'admLogoBase64', 'adm-logo-label')" class="hidden" />
+          </label>
+        </div>
+
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2">
+          <h4 class="text-xs font-extrabold text-gray-900">Customer Top Poster Banner</h4>
+          <label class="block bg-gray-100 border border-dashed border-gray-400 rounded-xl p-2.5 text-center cursor-pointer text-xs">
+            <i class="fa-solid fa-panorama mr-1"></i> <span id="adm-banner-label" class="font-bold">Upload Poster Banner Photo</span>
+            <input type="file" accept="image/*" onchange="handleImageUpload(this, 'admBannerBase64', 'adm-banner-label')" class="hidden" />
+          </label>
+        </div>
+
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2">
+          <h4 class="text-xs font-extrabold text-gray-900">External Website Advertisement</h4>
+          <input type="text" id="adm-ad-text" placeholder="Ad Title (e.g. Special Online Shopping Offer)" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs" />
+          <input type="url" id="adm-ad-url" placeholder="Website URL (https://example.com)" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs" />
+        </div>
+
+        <div class="bg-white p-3.5 rounded-2xl border border-gray-200 space-y-2">
+          <h4 class="text-xs font-extrabold text-gray-900">Subscription Payment UPI ID &amp; QR Scanner</h4>
+          <input type="text" id="adm-upi-id" placeholder="Enter UPI ID (e.g. 9609546435@ybl)" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-bold" />
+          <label class="block bg-gray-100 border border-dashed border-gray-400 rounded-xl p-2.5 text-center cursor-pointer text-xs">
+            <i class="fa-solid fa-qrcode mr-1"></i> <span id="adm-qr-label" class="font-bold">Upload UPI QR Scanner Photo</span>
+            <input type="file" accept="image/*" onchange="handleImageUpload(this, 'admQrBase64', 'adm-qr-label')" class="hidden" />
+          </label>
+        </div>
+
+        <button onclick="saveAdminBrandingAndSettings()" class="w-full bg-yellow-400 text-gray-900 font-extrabold py-3 rounded-xl text-xs shadow-lg">
+          Save Branding &amp; Payment Settings
+        </button>
+      </div>
+
+      <!-- ADMIN TAB 5: ALL DRIVERS, SHOPS & MECHANICS -->
+      <div id="admin-sec-all" class="hidden space-y-3 text-xs">
+        <h4 class="font-extrabold text-gray-700 uppercase">All Registered Drivers, Shops &amp; Mechanics</h4>
+        <div id="admin-all-entities" class="space-y-2"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======================================================================= -->
+  <!-- JAVASCRIPT: FIREBASE RTDB, BENGALI VOICE AUDIO, GPS, KM FARE & PWA      -->
+  <!-- ======================================================================= -->
+  <script>
+    // 1. INITIALIZE FIREBASE REALTIME DATABASE
+    const firebaseConfig = {
+      apiKey: "AIzaSyDJmu9uD5rT5ee1jNLpMQaTVIa_-yTrPzw",
+      authDomain: "public-service-11054.firebaseapp.com",
+      databaseURL: "https://public-service-11054-default-rtdb.firebaseio.com",
+      projectId: "public-service-11054",
+      storageBucket: "public-service-11054.firebasestorage.app",
+      messagingSenderId: "639313474404",
+      appId: "1:639313474404:web:9ac4645e521021c044c071",
+      measurementId: "G-ZMCRHQ4VC3"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // 2. BENGALI VOICE ANNOUNCEMENT ENGINE (ONLY AUDIO IN BENGALI, UI 100% ENGLISH)
+    let audioUnlocked = false;
+    let welcomePlayed = false;
+
+    function speakBengali(text) {
+      if (!('speechSynthesis' in window)) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = 'bn-IN';
+        utter.rate = 0.96;
+        utter.pitch = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        const bnVoice = voices.find(v => v.lang && (v.lang.includes('bn') || v.name.toLowerCase().includes('bengali')));
+        if (bnVoice) utter.voice = bnVoice;
+        window.speechSynthesis.speak(utter);
+      } catch (e) {}
+    }
+
+    function unlockAudioOnce() {
+      if (!audioUnlocked) {
+        audioUnlocked = true;
+        if (!welcomePlayed) {
+          welcomePlayed = true;
+          playWelcomeAnnouncement(false);
+        }
+      }
+    }
+
+    function playWelcomeAnnouncement(force) {
+      if (force) welcomePlayed = true;
+      const openTime = format12Hr(appSettings.cabOpenTime || '03:30');
+      const closeTime = format12Hr(appSettings.cabCloseTime || '00:10');
+      const timingMsg = appSettings.cabScheduleEnabled
+        ? `আমাদের সাধারণ গাড়ি পরিষেবা ভোর ${openTime} থেকে রাত ${closeTime} পর্যন্ত চালু থাকে।`
+        : `আমাদের সব গাড়ি পরিষেবা এখন ২৪ ঘণ্টা চালু রয়েছে।`;
+      const msg = `পাবলিক ক্যাব অ্যাপে আপনাকে স্বাগতম। ${timingMsg} জরুরী অ্যাম্বুলেন্স পরিষেবা দিন-রাত ২৪ ঘণ্টা খোলা থাকে। নিরাপদ যাত্রার জন্য আমাদের সাথেই থাকুন।`;
+      speakBengali(msg);
+    }
+
+    function playBookingSafetyAudio() {
+      speakBengali('গুরুত্বপূর্ণ সতর্কবার্তা। গাড়িতে ওঠার আগে অবশ্যই গাড়ির নম্বর, ড্রাইভারের ছবি এবং গাড়িতে কোম্পানির লোগো ও স্টিকার ভালোভাবে দেখে তবেই গাড়িতে উঠবেন।');
+    }
+
+    function playParcelWarningAudio() {
+      speakBengali('পার্সেল বুকিং সতর্কবার্তা। দেশের আইনের বিরুদ্ধে যায় এমন কোনো বেআইনি বা নিষিদ্ধ জিনিসপত্র পার্সেল হিসেবে পাঠানো সম্পূর্ণ বারণ।');
+    }
+
+    function playDriverWarningAudio() {
+      speakBengali('ড্রাইভার সতর্কবার্তা। কোনো রকম খারাপ কাজ বা বেআইনি কার্যকলাপে যুক্ত হলে কঠোর পুলিশি ব্যবস্থা নেওয়া হবে। অ্যাপে রেজিস্টার করা গাড়ির নম্বর ছাড়া অন্য কোনো গাড়ি চালানো যাবে না এবং গাড়িতে অবশ্যই কোম্পানির স্টিকার লাগিয়ে চালাতে হবে, অন্যথায় তা আইনত দণ্ডনীয় অপরাধ।');
+    }
+
+    function playServiceVoiceAnnouncement(subTab) {
+      if (subTab === 'Mechanic') {
+        speakBengali('আমাদের মেকানিক পরিষেবায় স্বাগতম। এখানে আপনার বাড়ির বা গাড়ির যেকোনো কাজের জন্য সব ধরনের দক্ষ মেকানিক পাওয়া যায়। আপনি পছন্দের মেকানিক সিলেক্ট করে একটি কল করে আপনার বাড়িতে ডেকে নিতে পারেন।');
+      } else {
+        speakBengali('আমাদের লোকাল শপ পরিষেবায় স্বাগতম। আপনি যেকোনো দোকান পছন্দ করুন, দোকানের সাথে কথা বলে অর্ডার করুন এবং সেই জিনিস বাড়ি পর্যন্ত ডেলিভারি নেওয়ার জন্য আমাদের পার্সেল অপশনে গিয়ে বুকিং করুন।');
+      }
+    }
+
+    function playCustomerAlarmAudio() {
+      const txt = appSettings.alarmMessage || 'সম্মানিত গ্রাহক, অনুগ্রহ করে আমাদের পরিষেবার সময়সূচী লক্ষ্য করুন।';
+      speakBengali(`জরুরী বিজ্ঞপ্তি। ${txt}`);
+    }
+
+    // 3. GLOBAL STATE & CACHES
+    const CATEGORIES = ['Bike', 'Toto', 'Cab', 'Parcel', 'Ambulance', 'Lorry', 'Shop', 'Mechanic'];
+    const KM_RATES = {
+      Bike: { base: 15, perKm: 8 },
+      Toto: { base: 20, perKm: 10 },
+      Cab: { base: 40, perKm: 25 },
+      Parcel: { base: 20, perKm: 9 }
+    };
+
+    let selectedVehicle = 'Bike';
+    let calculatedDistanceKm = 2.0;
+    let calculatedAutoFare = 31;
+
+    let currentCoords = [23.0802, 88.5284];
+    let dropCoords = [23.0920, 88.5400];
+    let custMap, drvMap, custMarker, dropMarker, custRouteLine;
+
+    let customerUser = JSON.parse(localStorage.getItem('pc_customer')) || null;
+    let currentDriver = JSON.parse(localStorage.getItem('pc_driver')) || null;
+    let currentProvider = JSON.parse(localStorage.getItem('pc_provider')) || null;
+    let activeRideId = localStorage.getItem('pc_active_ride_id') || null;
+    let currentServiceSubTab = 'Shop';
+
+    const uploadedImages = {
+      drvPhotoBase64: '',
+      drvNidBase64: '',
+      provPhotoBase64: '',
+      subProofBase64: '',
+      admLogoBase64: '',
+      admBannerBase64: '',
+      admQrBase64: ''
+    };
+
+    // Global Firebase Settings Cache
+    let appSettings = {
+      subscriptionEnabled: false,
+      cabScheduleEnabled: true,
+      cabOpenTime: '03:30',
+      cabCloseTime: '00:10',
+      svcOpenTime: '09:30',
+      svcCloseTime: '21:30',
+      alarmEnabled: false,
+      alarmMessage: '',
+      appName: 'Public Cab',
+      logoUrl: '',
+      bannerUrl: '',
+      adText: '',
+      adUrl: '',
+      upiId: 'publiccab@upi',
+      upiQrUrl: '',
+      prices: {
+        Bike: { '1d': 20, '7d': 100, '1m': 350 },
+        Toto: { '1d': 25, '7d': 120, '1m': 400 },
+        Cab: { '1d': 40, '7d': 220, '1m': 750 },
+        Parcel: { '1d': 20, '7d': 100, '1m': 350 },
+        Ambulance: { '1d': 50, '7d': 250, '1m': 900 },
+        Lorry: { '1d': 60, '7d': 300, '1m': 1100 },
+        Shop: { '1d': 15, '7d': 80, '1m': 250 },
+        Mechanic: { '1d': 15, '7d': 80, '1m': 250 }
+      }
+    };
+
+    let allDriversCache = {};
+    let allProvidersCache = {};
+    let allRidesCache = {};
+    let allSubRequestsCache = {};
+
+    // 4. TIME WINDOW CHECKERS (03:30 AM - 12:10 AM Cabs, 24/7 Ambulance, 09:30 AM - 09:30 PM Shop/Mechanic)
+    function parseMinutes(hhmm) {
+      const [h, m] = (hhmm || '00:00').split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    function format12Hr(hhmm) {
+      const [h, m] = (hhmm || '00:00').split(':').map(Number);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+    }
+
+    function isWithinTimeWindow(openStr, closeStr) {
+      const now = new Date();
+      const curMins = now.getHours() * 60 + now.getMinutes();
+      const openMins = parseMinutes(openStr);
+      const closeMins = parseMinutes(closeStr);
+      if (openMins <= closeMins) {
+        return curMins >= openMins && curMins <= closeMins;
+      } else {
+        // Overnight span (e.g. 03:30 AM to 00:10 AM)
+        return curMins >= openMins || curMins <= closeMins;
+      }
+    }
+
+    function isCabServiceCurrentlyOpen() {
+      if (!appSettings.cabScheduleEnabled) return true; // 24-Hour Mode when switch is OFF
+      return isWithinTimeWindow(appSettings.cabOpenTime || '03:30', appSettings.cabCloseTime || '00:10');
+    }
+
+    function isShopMechanicCurrentlyOpen() {
+      return isWithinTimeWindow(appSettings.svcOpenTime || '09:30', appSettings.svcCloseTime || '21:30');
+    }
+
+    // 5. CUSTOM TOAST & MODAL HELPERS
+    let toastTimer = null;
+    function showToast(title, msg) {
+      document.getElementById('toast-title').innerText = title;
+      document.getElementById('toast-body').innerText = msg;
+      document.getElementById('toast-alert').classList.remove('hidden');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(hideToast, 4000);
+    }
+    function hideToast() {
+      document.getElementById('toast-alert').classList.add('hidden');
+    }
+    function showInfoModal(title, msg) {
+      document.getElementById('info-modal-title').innerText = title;
+      document.getElementById('info-modal-msg').innerText = msg;
+      document.getElementById('info-modal').classList.remove('hidden');
+    }
+
+    function handleImageUpload(input, targetKey, labelId) {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const img = new Image();
+        img.onload = function () {
+          const canvas = document.createElement('canvas');
+          const maxW = 480;
+          const scale = Math.min(1, maxW / img.width);
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          uploadedImages[targetKey] = canvas.toDataURL('image/jpeg', 0.72);
+          if (labelId) {
+            document.getElementById(labelId).innerText = '✓ Photo Uploaded';
+            document.getElementById(labelId).classList.add('text-green-600');
+          }
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // 6. REAL LEAFLET GPS MAP, HAVERSINE KM CALCULATION & DYNAMIC ROUTE
+    function calcDistanceKm(lat1, lon1, lat2, lon2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return Math.max(1.0, parseFloat((R * c * 1.25).toFixed(1))); // Road factor 1.25x
+    }
+
+    function recalculateAutoKmFares() {
+      calculatedDistanceKm = calcDistanceKm(currentCoords[0], currentCoords[1], dropCoords[0], dropCoords[1]);
+      document.getElementById('est-distance-label').innerText = `Distance: ${calculatedDistanceKm.toFixed(1)} km`;
+
+      ['Bike', 'Toto', 'Cab', 'Parcel'].forEach(cat => {
+        const rate = KM_RATES[cat];
+        const fare = Math.round(rate.base + calculatedDistanceKm * rate.perKm);
+        const el = document.getElementById(`vfare-${cat}`);
+        if (el) el.innerText = `₹${fare}`;
+      });
+
+      const activeRate = KM_RATES[selectedVehicle] || KM_RATES.Bike;
+      calculatedAutoFare = Math.round(activeRate.base + calculatedDistanceKm * activeRate.perKm);
+      document.getElementById('fare-breakdown-text').innerText = `Base ₹${activeRate.base} + (${calculatedDistanceKm.toFixed(1)} km × ₹${activeRate.perKm}/km)`;
+      document.getElementById('auto-fare-display').innerText = `₹${calculatedAutoFare}`;
+      document.getElementById('book-btn').innerHTML = `<span>Book ${selectedVehicle} Now (₹${calculatedAutoFare})</span> <i class="fa-solid fa-arrow-right"></i>`;
+    }
+
+    function initMaps() {
+      custMap = L.map('gps-map', { center: currentCoords, zoom: 15, zoomControl: false });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(custMap);
+
+      const userPin = L.divIcon({
+        className: 'user-gps-pin',
+        html: `<div class="w-4 h-4 rounded-full bg-yellow-400 border-2 border-gray-900 pulse-dot shadow-lg"></div>`,
+        iconSize: [16, 16]
+      });
+      custMarker = L.marker(currentCoords, { icon: userPin }).addTo(custMap);
+
+      [[0.0015, 0.0012, '🏍️'], [-0.0012, 0.0018, '🚕'], [0.0009, -0.0016, '🛺']].forEach(([dLat, dLng, emoji]) => {
+        const vIcon = L.divIcon({ html: `<div style="font-size:18px;">${emoji}</div>`, className: '', iconSize: [22, 22] });
+        L.marker([currentCoords[0] + dLat, currentCoords[1] + dLng], { icon: vIcon }).addTo(custMap);
+      });
+
+      recalculateAutoKmFares();
+      detectDeviceGPS(false);
+    }
+
+    function detectDeviceGPS(notify) {
+      if (!navigator.geolocation) {
+        if (notify) showToast('GPS Error', 'GPS is not supported on this browser.');
+        return;
+      }
+      document.getElementById('gps-status-pill').innerText = 'Locating GPS...';
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          currentCoords = [pos.coords.latitude, pos.coords.longitude];
+          custMap.setView(currentCoords, 16);
+          custMarker.setLatLng(currentCoords);
+          document.getElementById('gps-status-pill').innerText = 'GPS Live';
+          recalculateAutoKmFares();
+
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentCoords[0]}&lon=${currentCoords[1]}`);
+            const data = await res.json();
+            if (data && data.display_name) {
+              const shortAddr = data.display_name.split(',').slice(0, 3).join(', ');
+              document.getElementById('pickup-loc').value = shortAddr;
+              document.getElementById('amb-pickup').value = shortAddr;
+              document.getElementById('lorry-pickup').value = shortAddr;
+            }
+          } catch (e) {}
+          if (notify) showToast('GPS Updated', 'Your live device location has been updated.');
+        },
+        () => {
+          document.getElementById('gps-status-pill').innerText = 'GPS Ready';
+          if (notify) showToast('GPS Permission', 'Please enable Location (GPS) on your device.');
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+
+    let searchDebounce = null;
+    function searchLocationAutocomplete(query, type) {
+      const boxId = type === 'pickup' ? 'pickup-suggestions' : 'drop-suggestions';
+      const box = document.getElementById(boxId);
+      clearTimeout(searchDebounce);
+      if (!query || query.trim().length < 2) {
+        box.classList.add('hidden');
+        return;
+      }
+      searchDebounce = setTimeout(async () => {
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=in,bd&q=${encodeURIComponent(query)}`;
+          const res = await fetch(url);
+          const places = await res.json();
+          if (!places.length) {
+            box.classList.add('hidden');
+            return;
+          }
+          box.innerHTML = places.map(p => {
+            const label = p.display_name.split(',').slice(0, 3).join(', ');
+            return `<div onclick="selectAutocompletePlace('${type}', '${label.replace(/'/g, "\\'")}', ${p.lat}, ${p.lon})" class="p-2.5 border-b border-gray-100 hover:bg-yellow-50 cursor-pointer flex items-center gap-2">
+              <i class="fa-solid fa-location-dot text-yellow-600"></i>
+              <span class="truncate text-gray-800 font-medium">${label}</span>
+            </div>`;
+          }).join('');
+          box.classList.remove('hidden');
+        } catch (err) {
+          box.classList.add('hidden');
+        }
+      }, 350);
+    }
+
+    function selectAutocompletePlace(type, label, lat, lon) {
+      if (type === 'pickup') {
+        document.getElementById('pickup-loc').value = label;
+        currentCoords = [parseFloat(lat), parseFloat(lon)];
+        custMap.setView(currentCoords, 15);
+        custMarker.setLatLng(currentCoords);
+        document.getElementById('pickup-suggestions').classList.add('hidden');
+      } else {
+        document.getElementById('drop-loc').value = label;
+        dropCoords = [parseFloat(lat), parseFloat(lon)];
+        if (dropMarker) custMap.removeLayer(dropMarker);
+        dropMarker = L.marker(dropCoords).addTo(custMap);
+        if (custRouteLine) custMap.removeLayer(custRouteLine);
+        custRouteLine = L.polyline([currentCoords, dropCoords], { color: '#111827', weight: 4, dashArray: '6, 6' }).addTo(custMap);
+        custMap.fitBounds([currentCoords, dropCoords], { padding: [35, 35] });
+        document.getElementById('drop-suggestions').classList.add('hidden');
+      }
+      recalculateAutoKmFares();
+    }
+
+    // 7. PWA MANIFEST, INSTALLER & OFFLINE SERVICE WORKER
+    let deferredPrompt = null;
+
+    function updateDynamicPWAManifest() {
+      const manifestLink = document.querySelector('link[rel="manifest"]');
+      if (manifestLink) manifestLink.href = './manifest.webmanifest';
+      const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+      if (appleIcon) appleIcon.href = './icon.svg';
+    }
+
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js', { scope: './' })
+          .then(() => console.info('Public Cab offline support is ready.'))
+          .catch((error) => console.warn('Service worker registration failed:', error));
+      });
+    }
+
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      deferredPrompt = event;
+      const banner = document.getElementById('install-banner');
+      if (banner) banner.classList.remove('hidden');
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredPrompt = null;
+      const banner = document.getElementById('install-banner');
+      if (banner) banner.classList.add('hidden');
+      if (typeof showToast === 'function') showToast('App Installed', 'Public Cab has been installed successfully.');
+    });
+
+    async function installPWAApp() {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        try {
+          const choice = await deferredPrompt.userChoice;
+          if (choice && choice.outcome === 'accepted') {
+            const banner = document.getElementById('install-banner');
+            if (banner) banner.classList.add('hidden');
+          }
+        } catch (error) {
+          console.warn('PWA install prompt could not be completed:', error);
+        }
+        deferredPrompt = null;
+        return;
+      }
+
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      if (isStandalone) {
+        if (typeof showInfoModal === 'function') showInfoModal('Public Cab Installed', 'Public Cab is already installed on this device.');
+        return;
+      }
+
+      const secure = location.protocol === 'https:' || location.hostname === 'localhost';
+      const help = secure
+        ? 'Android: Open this website in Chrome, tap the three-dot menu (⋮), then choose “Install app” or “Add to Home screen”.'
+        : 'First publish this app on an HTTPS hosting service. Then open it in Chrome and choose “Install app” from the three-dot menu.';
+      if (typeof showInfoModal === 'function') showInfoModal('Install Public Cab', help);
+      else alert(help);
+    }
+
+    updateDynamicPWAManifest();
+
+    // 8. FIREBASE REALTIME LISTENERS
+    function startFirebaseSync() {
+      db.ref('settings').on('value', (snap) => {
+        const val = snap.val();
+        if (val) {
+          appSettings = { ...appSettings, ...val, prices: { ...appSettings.prices, ...(val.prices || {}) } };
+        }
+        applyBrandingAndTimingsToUI();
+        updateDynamicPWAManifest();
+        renderServiceListings();
+        if (currentDriver) refreshDriverDashboard();
+      });
+
+      db.ref('drivers').on('value', (snap) => {
+        allDriversCache = snap.val() || {};
+        if (currentDriver && allDriversCache[currentDriver.phone]) {
+          currentDriver = allDriversCache[currentDriver.phone];
+          localStorage.setItem('pc_driver', JSON.stringify(currentDriver));
+          refreshDriverDashboard();
+        }
+        renderAdminLists();
+      });
+
+      db.ref('providers').on('value', (snap) => {
+        allProvidersCache = snap.val() || {};
+        if (currentProvider && allProvidersCache[currentProvider.phone]) {
+          currentProvider = allProvidersCache[currentProvider.phone];
+          localStorage.setItem('pc_provider', JSON.stringify(currentProvider));
+          updateLoggedProviderBar();
+        }
+        renderServiceListings();
+        renderAdminLists();
+      });
+
+      db.ref('rides').on('value', (snap) => {
+        allRidesCache = snap.val() || {};
+        syncCustomerActiveRide();
+        renderCustomerHistory();
+        if (currentDriver) renderDriverRequests();
+        renderAdminLists();
+      });
+
+      db.ref('subscriptionRequests').on('value', (snap) => {
+        allSubRequestsCache = snap.val() || {};
+        renderAdminLists();
+      });
+    }
+
+    function applyBrandingAndTimingsToUI() {
+      document.getElementById('header-app-name').innerText = appSettings.appName || 'Public Cab';
+      if (appSettings.logoUrl) {
+        document.getElementById('header-logo-img').src = appSettings.logoUrl;
+        document.getElementById('header-logo-img').classList.remove('hidden');
+        document.getElementById('header-logo-icon').classList.add('hidden');
+      }
+
+      const cabStatusEl = document.getElementById('cab-hours-status');
+      if (!appSettings.cabScheduleEnabled) {
+        cabStatusEl.innerHTML = `<i class="fa-solid fa-clock mr-1"></i> Cab Service: Open 24 Hours`;
+        cabStatusEl.className = 'font-bold text-green-700';
+      } else {
+        const isOpen = isCabServiceCurrentlyOpen();
+        const rangeStr = `${format12Hr(appSettings.cabOpenTime)} - ${format12Hr(appSettings.cabCloseTime)}`;
+        cabStatusEl.innerHTML = isOpen
+          ? `<i class="fa-solid fa-circle-check mr-1"></i> Cab Open (${rangeStr})`
+          : `<i class="fa-solid fa-circle-xmark mr-1"></i> Cab Closed (${rangeStr})`;
+        cabStatusEl.className = isOpen ? 'font-bold text-green-700' : 'font-bold text-red-600';
+      }
+
+      const svcRange = `${format12Hr(appSettings.svcOpenTime || '09:30')} - ${format12Hr(appSettings.svcCloseTime || '21:30')}`;
+      document.getElementById('service-timing-badge').innerText = `Operating Hours: ${svcRange}`;
+      document.getElementById('svc-open-time-text').innerText = format12Hr(appSettings.svcOpenTime || '09:30');
+      document.getElementById('svc-close-time-text').innerText = format12Hr(appSettings.svcCloseTime || '21:30');
+      document.getElementById('service-closed-notice').classList.toggle('hidden', isShopMechanicCurrentlyOpen());
+
+      const alarmBar = document.getElementById('customer-alarm-bar');
+      if (appSettings.alarmEnabled && appSettings.alarmMessage) {
+        document.getElementById('customer-alarm-text').innerText = appSettings.alarmMessage;
+        alarmBar.classList.remove('hidden');
+      } else {
+        alarmBar.classList.add('hidden');
+      }
+
+      const wrapper = document.getElementById('promo-banner-wrapper');
+      const posterBox = document.getElementById('custom-poster-box');
+      const adLink = document.getElementById('external-ad-link');
+      let hasPromo = false;
+
+      if (appSettings.bannerUrl) {
+        document.getElementById('custom-poster-img').src = appSettings.bannerUrl;
+        posterBox.classList.remove('hidden');
+        hasPromo = true;
+      } else {
+        posterBox.classList.add('hidden');
+      }
+
+      if (appSettings.adUrl) {
+        adLink.href = appSettings.adUrl;
+        document.getElementById('external-ad-text').innerText = appSettings.adText || appSettings.adUrl;
+        adLink.classList.remove('hidden');
+        hasPromo = true;
+      } else {
+        adLink.classList.add('hidden');
+      }
+
+      wrapper.classList.toggle('hidden', !hasPromo);
+    }
+
+    // 9. CUSTOMER LOGIN, VEHICLE SELECTION & BOOKING
+    function updateCustomerLoginStrip() {
+      if (customerUser) {
+        document.getElementById('cust-display-name').innerText = customerUser.name;
+        document.getElementById('cust-display-phone').innerText = customerUser.phone;
+        document.getElementById('cust-login-btn').innerText = 'Edit';
+      }
+    }
+
+    function openCustomerLoginModal() {
+      if (customerUser) {
+        document.getElementById('cust-input-name').value = customerUser.name;
+        document.getElementById('cust-input-phone').value = customerUser.phone;
+      }
+      document.getElementById('cust-login-modal').classList.remove('hidden');
+    }
+
+    function saveCustomerLogin() {
+      const name = document.getElementById('cust-input-name').value.trim();
+      const phone = document.getElementById('cust-input-phone').value.trim();
+      if (!name || !phone) {
+        showToast('Required', 'Please enter your Name and Mobile Number.');
+        return;
+      }
+      customerUser = { name, phone };
+      localStorage.setItem('pc_customer', JSON.stringify(customerUser));
+      db.ref(`customers/${phone}`).set({ name, phone, updatedAt: Date.now() });
+      updateCustomerLoginStrip();
+      document.getElementById('cust-login-modal').classList.add('hidden');
+      showToast('Welcome!', `${name}, you are now logged in.`);
+    }
+
+    function selectVehicle(cat, el) {
+      selectedVehicle = cat;
+      document.querySelectorAll('.vehicle-card').forEach(c => {
+        c.classList.remove('border-2', 'border-yellow-400', 'bg-yellow-50');
+        c.classList.add('border', 'border-gray-200', 'bg-white');
+      });
+      el.classList.remove('border', 'border-gray-200', 'bg-white');
+      el.classList.add('border-2', 'border-yellow-400', 'bg-yellow-50');
+      recalculateAutoKmFares();
+
+      if (cat === 'Parcel') {
+        playParcelWarningAudio();
+        showToast('Parcel Policy', 'Illegal or prohibited items are strictly banned from parcel delivery.');
+      }
+    }
+
+    function bookRide() {
+      if (!isCabServiceCurrentlyOpen()) {
+        const range = `${format12Hr(appSettings.cabOpenTime)} to ${format12Hr(appSettings.cabCloseTime)}`;
+        showInfoModal('Service Closed', `Standard vehicle bookings are open only from ${range}. Emergency Ambulance service is open 24/7.`);
+        speakBengali(`দুঃখিত, এই মুহূর্তে সাধারণ গাড়ি বুকিং বন্ধ আছে। ভোর ${format12Hr(appSettings.cabOpenTime)} থেকে রাত ${format12Hr(appSettings.cabCloseTime)} পর্যন্ত বুকিং করা যাবে।`);
+        return;
+      }
+      if (!customerUser) {
+        openCustomerLoginModal();
+        showToast('Login Required', 'Please enter your Name and Phone Number before booking.');
+        return;
+      }
+      const pickup = document.getElementById('pickup-loc').value.trim();
+      const drop = document.getElementById('drop-loc').value.trim();
+      if (!pickup || !drop) {
+        showToast('Location Missing', 'Please enter both Pickup and Drop locations.');
+        return;
+      }
+
+      if (selectedVehicle === 'Parcel') {
+        playParcelWarningAudio();
+      } else {
+        playBookingSafetyAudio();
+      }
+
+      createRideInFirebase(selectedVehicle, pickup, drop, calculatedAutoFare, calculatedDistanceKm);
+    }
+
+    function bookSpecialCategory(cat) {
+      if (cat !== 'Ambulance' && !isCabServiceCurrentlyOpen()) {
+        showInfoModal('Service Closed', `Lorry booking is available from ${format12Hr(appSettings.cabOpenTime)} to ${format12Hr(appSettings.cabCloseTime)}.`);
+        return;
+      }
+      if (!customerUser) {
+        openCustomerLoginModal();
+        return;
+      }
+      const pickup = document.getElementById(cat === 'Ambulance' ? 'amb-pickup' : 'lorry-pickup').value.trim();
+      const drop = document.getElementById(cat === 'Ambulance' ? 'amb-drop' : 'lorry-drop').value.trim();
+      const subType = document.getElementById(cat === 'Ambulance' ? 'amb-type' : 'lorry-type').value;
+      if (!pickup || !drop) {
+        showToast('Incomplete Address', 'Please enter both Pickup and Destination addresses.');
+        return;
+      }
+      const priceMatch = subType.match(/₹(\d+)/);
+      const fare = priceMatch ? parseInt(priceMatch[1], 10) : 500;
+      playBookingSafetyAudio();
+      createRideInFirebase(cat, pickup, `${drop} (${subType})`, fare, calculatedDistanceKm);
+      showMainTab('home');
+    }
+
+    function createRideInFirebase(category, pickup, drop, fare, distanceKm) {
+      const rideRef = db.ref('rides').push();
+      activeRideId = rideRef.key;
+      localStorage.setItem('pc_active_ride_id', activeRideId);
+
+      const rideData = {
+        id: activeRideId,
+        category,
+        pickup,
+        drop,
+        pickupCoords: currentCoords,
+        dropCoords: dropCoords,
+        distanceKm: distanceKm || 2.0,
+        fare,
+        status: 'searching',
+        customerName: customerUser.name,
+        customerPhone: customerUser.phone,
+        createdAt: Date.now()
+      };
+      rideRef.set(rideData);
+      showToast('Request Sent', `Searching for nearby ${category} driver...`);
+    }
+
+    function cancelRide() {
+      if (!activeRideId) return;
+      const ride = allRidesCache[activeRideId];
+      if (ride && ['accepted', 'arrived', 'started'].includes(ride.status)) {
+        showToast('Cannot Cancel', 'Driver has already accepted your ride. Cancellation is locked.');
+        return;
+      }
+      db.ref(`rides/${activeRideId}`).update({ status: 'cancelled' });
+      activeRideId = null;
+      localStorage.removeItem('pc_active_ride_id');
+      document.getElementById('customer-ride-status').classList.add('hidden');
+      document.getElementById('book-btn').classList.remove('hidden');
+      document.getElementById('cust-map-phase-pill').classList.add('hidden');
+      showToast('Cancelled', 'Your ride request has been cancelled.');
+    }
+
+    let lastNotifiedRideStatus = '';
+    function syncCustomerActiveRide() {
+      const statusBox = document.getElementById('customer-ride-status');
+      const bookBtn = document.getElementById('book-btn');
+      const mapPhasePill = document.getElementById('cust-map-phase-pill');
+
+      if (!activeRideId || !allRidesCache[activeRideId]) {
+        statusBox.classList.add('hidden');
+        bookBtn.classList.remove('hidden');
+        mapPhasePill.classList.add('hidden');
+        return;
+      }
+
+      const ride = allRidesCache[activeRideId];
+      if (ride.status === 'completed' || ride.status === 'cancelled') {
+        if (ride.status === 'completed' && lastNotifiedRideStatus !== 'completed') {
+          showInfoModal('Ride Completed!', `Thank you for riding with ${appSettings.appName}. Total Fare Paid: ₹${ride.fare}`);
+          speakBengali('আপনার যাত্রা সফলভাবে সম্পন্ন হয়েছে। পাবলিক ক্যাব ব্যবহার করার জন্য ধন্যবাদ।');
+        }
+        lastNotifiedRideStatus = ride.status;
+        activeRideId = null;
+        localStorage.removeItem('pc_active_ride_id');
+        statusBox.classList.add('hidden');
+        bookBtn.classList.remove('hidden');
+        mapPhasePill.classList.add('hidden');
+        return;
+      }
+
+      bookBtn.classList.add('hidden');
+      statusBox.classList.remove('hidden');
+      document.getElementById('ride-details-text').innerText = `${ride.category} (${ride.distanceKm || 2} km) | ${ride.pickup} ➔ ${ride.drop} (₹${ride.fare})`;
+
+      const cancelBtn = document.getElementById('cust-cancel-btn');
+      const drvCard = document.getElementById('accepted-driver-card');
+      const stepper = document.getElementById('cust-ride-stepper');
+
+      if (ride.status === 'searching') {
+        document.getElementById('ride-badge').innerText = 'Searching for Driver...';
+        cancelBtn.classList.remove('hidden');
+        drvCard.classList.add('hidden');
+        stepper.classList.add('hidden');
+        mapPhasePill.classList.add('hidden');
+        document.getElementById('driver-assigned-info').innerText = `Broadcasted to verified ${ride.category} drivers near your pickup point.`;
+      } else {
+        cancelBtn.classList.add('hidden');
+        drvCard.classList.remove('hidden');
+        stepper.classList.remove('hidden');
+        mapPhasePill.classList.remove('hidden');
+
+        document.getElementById('acc-drv-name').innerText = ride.driverName || 'Driver';
+        document.getElementById('acc-drv-veh').innerText = `Vehicle No: ${ride.driverVehNo || 'N/A'}`;
+        document.getElementById('acc-drv-photo').src = ride.driverPhoto || 'https://placehold.co/80x80/facc15/111827?text=D';
+        document.getElementById('acc-drv-call').href = `tel:${ride.driverPhone}`;
+
+        const sAcc = document.getElementById('step-accepted');
+        const sArr = document.getElementById('step-arrived');
+        const sStr = document.getElementById('step-started');
+
+        if (ride.status === 'accepted') {
+          document.getElementById('ride-badge').innerText = 'Driver Accepted';
+          document.getElementById('acc-drv-eta').innerText = 'Arriving in 4 mins';
+          mapPhasePill.innerText = 'Driver Coming to Pickup';
+          sAcc.className = 'py-1.5 rounded-lg bg-green-600 text-white';
+          sArr.className = 'py-1.5 rounded-lg bg-gray-200 text-gray-600';
+          sStr.className = 'py-1.5 rounded-lg bg-gray-200 text-gray-600';
+          if (lastNotifiedRideStatus !== 'accepted') {
+            showToast('Driver Assigned!', `${ride.driverName} (${ride.driverVehNo}) is on the way.`);
+          }
+        } else if (ride.status === 'arrived') {
+          document.getElementById('ride-badge').innerText = 'Driver Arrived at Pickup';
+          document.getElementById('acc-drv-eta').innerText = 'Driver is waiting at Pickup';
+          mapPhasePill.innerText = 'Driver Arrived at Pickup!';
+          sAcc.className = 'py-1.5 rounded-lg bg-green-600 text-white';
+          sArr.className = 'py-1.5 rounded-lg bg-yellow-400 text-gray-900';
+          sStr.className = 'py-1.5 rounded-lg bg-gray-200 text-gray-600';
+          if (lastNotifiedRideStatus !== 'arrived') {
+            showToast('Driver Arrived!', 'Your driver has reached the pickup location.');
+            speakBengali('আপনার ড্রাইভার পিকআপ লোকেশনে পৌঁছে গেছেন। গাড়ির নম্বর এবং স্টিকার দেখে গাড়িতে উঠুন।');
+          }
+        } else if (ride.status === 'started') {
+          document.getElementById('ride-badge').innerText = 'On Trip to Destination';
+          document.getElementById('acc-drv-eta').innerText = 'Heading to Drop Location';
+          mapPhasePill.innerText = 'Live Route to Destination';
+          sAcc.className = 'py-1.5 rounded-lg bg-green-600 text-white';
+          sArr.className = 'py-1.5 rounded-lg bg-green-600 text-white';
+          sStr.className = 'py-1.5 rounded-lg bg-blue-600 text-white';
+
+          if (custMap && ride.pickupCoords && ride.dropCoords) {
+            if (dropMarker) custMap.removeLayer(dropMarker);
+            dropMarker = L.marker(ride.dropCoords).addTo(custMap);
+            if (custRouteLine) custMap.removeLayer(custRouteLine);
+            custRouteLine = L.polyline([ride.pickupCoords, ride.dropCoords], { color: '#2563eb', weight: 5 }).addTo(custMap);
+            custMap.fitBounds([ride.pickupCoords, ride.dropCoords], { padding: [30, 30] });
+          }
+          if (lastNotifiedRideStatus !== 'started') {
+            showToast('Trip Started', 'Live GPS route to your destination is active.');
+          }
+        }
+        lastNotifiedRideStatus = ride.status;
+      }
+
+      const chatContainer = document.getElementById('cust-chat-messages');
+      const chats = ride.chat ? Object.values(ride.chat) : [];
+      chatContainer.innerHTML = chats.length
+        ? chats.map(c => `<div class="${c.sender === 'customer' ? 'text-right' : 'text-left'}"><span class="inline-block px-2.5 py-1 rounded-lg ${c.sender === 'customer' ? 'bg-gray-900 text-yellow-400' : 'bg-white border border-gray-300 text-gray-900'}">${c.text}</span></div>`).join('')
+        : '<p class="text-gray-400 text-center py-4">No messages yet</p>';
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function sendChatMessage(senderRole, rideIdOverride) {
+      const rId = rideIdOverride || activeRideId;
+      if (!rId) return;
+      const inputEl = document.getElementById(senderRole === 'customer' ? 'cust-chat-input' : `drv-chat-input-${rId}`);
+      const text = inputEl.value.trim();
+      if (!text) return;
+      db.ref(`rides/${rId}/chat`).push({
+        sender: senderRole,
+        text,
+        time: Date.now()
+      });
+      inputEl.value = '';
+    }
+
+    // 10. DRIVER REGISTRATION, LOGIN & MULTI-STEP TRIP WORKFLOW
+    function toggleDriverAuthMode(mode) {
+      document.getElementById('driver-login-form').classList.toggle('hidden', mode !== 'login');
+      document.getElementById('driver-register-form').classList.toggle('hidden', mode !== 'register');
+      document.getElementById('drv-tab-login').className = mode === 'login' ? 'flex-1 py-2 rounded-lg bg-gray-900 text-yellow-400 text-xs font-extrabold' : 'flex-1 py-2 rounded-lg text-gray-700 text-xs font-extrabold';
+      document.getElementById('drv-tab-reg').className = mode === 'register' ? 'flex-1 py-2 rounded-lg bg-gray-900 text-yellow-400 text-xs font-extrabold' : 'flex-1 py-2 rounded-lg text-gray-700 text-xs font-extrabold';
+    }
+
+    function registerDriver() {
+      const name = document.getElementById('drv-reg-name').value.trim();
+      const phone = document.getElementById('drv-reg-phone').value.trim();
+      const password = document.getElementById('drv-reg-pass').value.trim();
+      const category = document.getElementById('drv-reg-category').value;
+      const vehNo = document.getElementById('drv-reg-vehno').value.trim().toUpperCase();
+
+      if (!name || !phone || !password || !vehNo) {
+        showToast('Missing Fields', 'Name, Phone, Password and Vehicle Number are required.');
+        return;
+      }
+
+      const driverObj = {
+        name,
+        phone,
+        password,
+        category,
+        vehNo,
+        photo: uploadedImages.drvPhotoBase64 || 'https://placehold.co/100x100/facc15/111827?text=Driver',
+        nidPhoto: uploadedImages.drvNidBase64 || '',
+        status: 'pending',
+        earnings: 0,
+        subExpiry: 0,
+        createdAt: Date.now()
+      };
+
+      db.ref(`drivers/${phone}`).set(driverObj);
+      currentDriver = driverObj;
+      localStorage.setItem('pc_driver', JSON.stringify(currentDriver));
+      refreshDriverDashboard();
+      showInfoModal('Registration Submitted!', 'Your driver application is now pending Admin approval. Once approved, you can start accepting rides.');
+    }
+
+    function loginDriver() {
+      const phone = document.getElementById('drv-login-phone').value.trim();
+      const pass = document.getElementById('drv-login-pass').value.trim();
+      const drv = allDriversCache[phone];
+      if (!drv || drv.password !== pass) {
+        showToast('Login Failed', 'Invalid phone number or password.');
+        return;
+      }
+      currentDriver = drv;
+      localStorage.setItem('pc_driver', JSON.stringify(currentDriver));
+      refreshDriverDashboard();
+      showToast('Welcome Back', `${drv.name}, logged into Driver Partner Panel.`);
+    }
+
+    function logoutDriver() {
+      currentDriver = null;
+      localStorage.removeItem('pc_driver');
+      document.getElementById('driver-dashboard-box').classList.add('hidden');
+      document.getElementById('driver-auth-box').classList.remove('hidden');
+    }
+
+    function isSubscriptionActive(entity) {
+      if (!appSettings.subscriptionEnabled) return true;
+      return entity && entity.subExpiry && entity.subExpiry > Date.now();
+    }
+
+    function refreshDriverDashboard() {
+      if (!currentDriver) return;
+      document.getElementById('driver-auth-box').classList.add('hidden');
+      document.getElementById('driver-dashboard-box').classList.remove('hidden');
+
+      document.getElementById('drv-dash-name').innerText = currentDriver.name;
+      document.getElementById('drv-dash-cat').innerText = currentDriver.category;
+      document.getElementById('drv-dash-veh').innerText = currentDriver.vehNo;
+      document.getElementById('drv-dash-photo').src = currentDriver.photo;
+      document.getElementById('driver-earnings').innerText = `₹${(currentDriver.earnings || 0).toFixed(2)}`;
+      document.getElementById('drv-cat-filter-label').innerText = currentDriver.category;
+
+      const isApproved = currentDriver.status === 'approved';
+      document.getElementById('drv-pending-alert').classList.toggle('hidden', isApproved);
+
+      const subActive = isSubscriptionActive(currentDriver);
+      document.getElementById('drv-sub-blocked-alert').classList.toggle('hidden', subActive);
+      document.getElementById('drv-sub-badge').innerHTML = subActive
+        ? `<i class="fa-solid fa-circle-check"></i> ${appSettings.subscriptionEnabled ? 'Plan Active' : 'Free Mode'}`
+        : `<i class="fa-solid fa-triangle-exclamation text-red-400"></i> Inactive`;
+
+      renderDriverRequests();
+    }
+
+    function renderDriverRequests() {
+      if (!currentDriver) return;
+      const listEl = document.getElementById('driver-requests-list');
+      const noReqBox = document.getElementById('no-requests-box');
+      const mapWrap = document.getElementById('driver-map-wrapper');
+      const isOnline = document.getElementById('duty-toggle').checked;
+
+      if (!isOnline || currentDriver.status !== 'approved') {
+        listEl.innerHTML = '';
+        noReqBox.classList.remove('hidden');
+        mapWrap.classList.add('hidden');
+        return;
+      }
+
+      const rides = Object.values(allRidesCache).filter(r =>
+        r.category === currentDriver.category &&
+        (r.status === 'searching' || (['accepted', 'arrived', 'started'].includes(r.status) && r.driverPhone === currentDriver.phone))
+      );
+
+      if (!rides.length) {
+        listEl.innerHTML = '';
+        noReqBox.classList.remove('hidden');
+        mapWrap.classList.add('hidden');
+        return;
+      }
+
+      noReqBox.classList.add('hidden');
+      const subOk = isSubscriptionActive(currentDriver);
+
+      const focusRide = rides[0];
+      if (focusRide && focusRide.pickupCoords) {
+        mapWrap.classList.remove('hidden');
+        setTimeout(() => {
+          if (!drvMap) {
+            drvMap = L.map('driver-gps-map', { center: focusRide.pickupCoords, zoom: 14, zoomControl: false });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(drvMap);
+          }
+          drvMap.invalidateSize();
+          drvMap.setView(focusRide.pickupCoords, 14);
+          L.marker(focusRide.pickupCoords).addTo(drvMap).bindPopup('Pickup: ' + focusRide.pickup);
+          if (focusRide.dropCoords) {
+            L.marker(focusRide.dropCoords).addTo(drvMap).bindPopup('Drop: ' + focusRide.drop);
+            const targetCoords = (focusRide.status === 'accepted') ? focusRide.pickupCoords : focusRide.dropCoords;
+            document.getElementById('google-maps-nav-btn').href = `https://www.google.com/maps/dir/?api=1&destination=${targetCoords[0]},${targetCoords[1]}`;
+          }
+        }, 150);
+      }
+
+      listEl.innerHTML = rides.map(r => {
+        const chats = r.chat ? Object.values(r.chat) : [];
+        let actionArea = '';
+
+        if (r.status === 'searching') {
+          actionArea = subOk
+            ? `<button onclick="driverAcceptRide('${r.id}')" class="w-full bg-green-600 text-white font-extrabold py-2.5 rounded-xl text-xs shadow">Accept Ride</button>`
+            : `<div class="bg-red-50 border border-red-300 p-2 rounded-xl flex items-center justify-between">
+                 <span class="text-[11px] font-bold text-red-700">Subscription Required to Accept</span>
+                 <button onclick="openSubscriptionModalForDriver()" class="bg-red-600 text-white text-[11px] font-extrabold px-2.5 py-1 rounded">Check</button>
+               </div>`;
+        } else {
+          let nextStepBtn = '';
+          if (r.status === 'accepted') {
+            nextStepBtn = `<button onclick="driverUpdateRidePhase('${r.id}', 'arrived')" class="flex-1 bg-yellow-400 text-gray-900 font-extrabold py-2 rounded-xl text-xs">Mark Arrived</button>`;
+          } else if (r.status === 'arrived') {
+            nextStepBtn = `<button onclick="driverUpdateRidePhase('${r.id}', 'started')" class="flex-1 bg-blue-600 text-white font-extrabold py-2 rounded-xl text-xs">Start Trip (Pickup Done)</button>`;
+          } else if (r.status === 'started') {
+            nextStepBtn = `<button onclick="driverCompleteRide('${r.id}', ${r.fare})" class="flex-1 bg-gray-900 text-yellow-400 font-extrabold py-2 rounded-xl text-xs">Complete Trip</button>`;
+          }
+
+          actionArea = `
+            <div class="space-y-2 pt-1">
+              <div class="flex gap-2">
+                <a href="tel:${r.customerPhone}" class="bg-green-600 text-white font-bold px-3 py-2 rounded-xl text-xs text-center"><i class="fa-solid fa-phone mr-1"></i> Call</a>
+                ${nextStepBtn}
+              </div>
+              <div class="bg-gray-100 p-2 rounded-xl space-y-1.5">
+                <div class="max-h-24 overflow-y-auto space-y-1 text-[11px]">
+                  ${chats.map(c => `<div class="${c.sender === 'driver' ? 'text-right' : 'text-left'}"><span class="inline-block px-2 py-1 rounded ${c.sender === 'driver' ? 'bg-gray-900 text-yellow-400' : 'bg-white border'}">${c.text}</span></div>`).join('')}
+                </div>
+                <div class="flex gap-1">
+                  <input type="text" id="drv-chat-input-${r.id}" placeholder="Message customer..." class="flex-1 bg-white border rounded-lg px-2 py-1 text-xs" />
+                  <button onclick="sendChatMessage('driver', '${r.id}')" class="bg-gray-900 text-yellow-400 px-2.5 py-1 rounded-lg text-xs font-bold">Send</button>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="bg-white border-2 border-yellow-400 p-3.5 rounded-2xl shadow-md space-y-2.5">
+            <div class="flex justify-between items-center border-b pb-2">
+              <span class="bg-yellow-400 text-gray-900 text-[11px] font-extrabold px-2.5 py-0.5 rounded">${r.category} (${r.distanceKm || 2} km)</span>
+              <span class="text-lg font-extrabold text-green-600">₹${r.fare}</span>
+            </div>
+            <div class="space-y-1 text-xs">
+              <p><i class="fa-solid fa-circle-dot text-green-600 mr-1.5"></i><strong>Pickup:</strong> ${r.pickup}</p>
+              <p><i class="fa-solid fa-location-dot text-red-600 mr-1.5"></i><strong>Drop:</strong> ${r.drop}</p>
+              <p><i class="fa-solid fa-user text-gray-600 mr-1.5"></i><strong>Customer:</strong> ${r.customerName} (${r.customerPhone})</p>
+            </div>
+            ${actionArea}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function driverAcceptRide(rideId) {
+      if (!currentDriver || !isSubscriptionActive(currentDriver)) {
+        openSubscriptionModalForDriver();
+        return;
+      }
+      db.ref(`rides/${rideId}`).update({
+        status: 'accepted',
+        driverName: currentDriver.name,
+        driverPhone: currentDriver.phone,
+        driverPhoto: currentDriver.photo,
+        driverVehNo: currentDriver.vehNo,
+        eta: '4 mins'
+      });
+      showToast('Ride Accepted!', 'Google Maps navigation & customer contact unlocked.');
+    }
+
+    function driverUpdateRidePhase(rideId, newStatus) {
+      db.ref(`rides/${rideId}`).update({ status: newStatus });
+      showToast('Status Updated', newStatus === 'arrived' ? 'Customer notified of your arrival.' : 'Trip started! Follow route to drop location.');
+    }
+
+    function driverCompleteRide(rideId, fare) {
+      db.ref(`rides/${rideId}`).update({ status: 'completed', completedAt: Date.now() });
+      const newEarnings = (currentDriver.earnings || 0) + fare;
+      db.ref(`drivers/${currentDriver.phone}`).update({ earnings: newEarnings });
+      showToast('Trip Completed!', `₹${fare} added to your today's earnings.`);
+    }
+
+    function toggleDuty() {
+      const isOnline = document.getElementById('duty-toggle').checked;
+      const txt = document.getElementById('duty-text');
+      txt.innerText = isOnline ? 'ONLINE' : 'OFFLINE';
+      txt.className = isOnline ? 'text-[10px] font-extrabold mt-0.5 text-green-400' : 'text-[10px] font-extrabold mt-0.5 text-red-400';
+      renderDriverRequests();
+    }
+
+    // 11. SERVICE TAB: SHOP & MECHANIC REGISTRATION, LOGIN & SUBSCRIPTION BLOCKING
+    function switchServiceSubTab(tab) {
+      currentServiceSubTab = tab;
+      document.getElementById('subtab-shop').className = tab === 'Shop'
+        ? 'py-2 rounded-lg bg-yellow-400 text-gray-900 font-extrabold text-xs shadow'
+        : 'py-2 rounded-lg text-gray-700 font-extrabold text-xs';
+      document.getElementById('subtab-mechanic').className = tab === 'Mechanic'
+        ? 'py-2 rounded-lg bg-yellow-400 text-gray-900 font-extrabold text-xs shadow'
+        : 'py-2 rounded-lg text-gray-700 font-extrabold text-xs';
+      renderServiceListings();
+      playServiceVoiceAnnouncement(tab);
+    }
+
+    function openProviderAuthModal() {
+      document.getElementById('provider-auth-modal').classList.remove('hidden');
+    }
+
+    function switchProviderModalTab(tab) {
+      document.getElementById('pm-login-form').classList.toggle('hidden', tab !== 'login');
+      document.getElementById('pm-reg-form').classList.toggle('hidden', tab !== 'register');
+      document.getElementById('pm-tab-login').className = tab === 'login' ? 'py-1.5 rounded-lg bg-gray-900 text-yellow-400 text-xs font-bold' : 'py-1.5 rounded-lg text-gray-700 text-xs font-bold';
+      document.getElementById('pm-tab-reg').className = tab === 'register' ? 'py-1.5 rounded-lg bg-gray-900 text-yellow-400 text-xs font-bold' : 'py-1.5 rounded-lg text-gray-700 text-xs font-bold';
+
+      if (tab === 'register') {
+        speakBengali('দোকানদার এবং মেকানিক রেজিস্ট্রেশন নির্দেশিকা। অনুগ্রহ করে আপনার ফোন নম্বর এবং পাসওয়ার্ডটি ভালোভাবে মনে রাখবেন, পরবর্তীতে লগইন বা সাবস্ক্রিপশন করার জন্য এটি প্রয়োজন হবে।');
+      }
+    }
+
+    function registerServiceProvider() {
+      const type = document.getElementById('pm-reg-type').value;
+      const name = document.getElementById('pm-reg-name').value.trim();
+      const details = document.getElementById('pm-reg-details').value.trim();
+      const address = document.getElementById('pm-reg-address').value.trim();
+      const phone = document.getElementById('pm-reg-phone').value.trim();
+      const password = document.getElementById('pm-reg-pass').value.trim();
+
+      if (!name || !phone || !password || !address) {
+        showToast('Missing Fields', 'Please fill in all required fields.');
+        return;
+      }
+
+      const provObj = {
+        type,
+        name,
+        details,
+        address,
+        coords: currentCoords,
+        phone,
+        password,
+        photo: uploadedImages.provPhotoBase64 || 'https://placehold.co/200x140/111827/facc15?text=' + type,
+        status: 'pending',
+        subExpiry: 0,
+        createdAt: Date.now()
+      };
+
+      db.ref(`providers/${phone}`).set(provObj);
+      currentProvider = provObj;
+      localStorage.setItem('pc_provider', JSON.stringify(currentProvider));
+      updateLoggedProviderBar();
+      document.getElementById('provider-auth-modal').classList.add('hidden');
+      showInfoModal('Profile Submitted!', 'Your Shop/Mechanic profile has been sent for Admin approval. Remember your Phone Number & Password for future login and subscription renewal.');
+    }
+
+    function loginServiceProvider() {
+      const phone = document.getElementById('pm-login-phone').value.trim();
+      const pass = document.getElementById('pm-login-pass').value.trim();
+      const prov = allProvidersCache[phone];
+      if (!prov || prov.password !== pass) {
+        showToast('Login Failed', 'Invalid Phone Number or Password.');
+        return;
+      }
+      currentProvider = prov;
+      localStorage.setItem('pc_provider', JSON.stringify(currentProvider));
+      updateLoggedProviderBar();
+      document.getElementById('provider-auth-modal').classList.add('hidden');
+      showToast('Logged In', `Logged in as ${prov.name}.`);
+    }
+
+    function logoutProvider() {
+      currentProvider = null;
+      localStorage.removeItem('pc_provider');
+      document.getElementById('logged-provider-bar').classList.add('hidden');
+    }
+
+    function updateLoggedProviderBar() {
+      const bar = document.getElementById('logged-provider-bar');
+      if (!currentProvider) {
+        bar.classList.add('hidden');
+        return;
+      }
+      bar.classList.remove('hidden');
+      const subOk = isSubscriptionActive(currentProvider);
+      document.getElementById('prov-bar-title').innerText = `${currentProvider.name} (${currentProvider.type})`;
+      document.getElementById('prov-bar-status').innerText = currentProvider.status !== 'approved'
+        ? 'Pending Admin Approval'
+        : (subOk ? 'Subscription Active (Visible to Customers)' : 'Suspended (Subscription Required)');
+    }
+
+    function renderServiceListings() {
+      const container = document.getElementById('service-listings-container');
+      const items = Object.values(allProvidersCache).filter(p => p.type === currentServiceSubTab && p.status === 'approved');
+      const isOpenNow = isShopMechanicCurrentlyOpen();
+
+      if (!items.length) {
+        container.innerHTML = `<div class="bg-gray-50 border border-dashed border-gray-300 rounded-2xl p-6 text-center text-xs text-gray-500">
+          No approved ${currentServiceSubTab}s listed yet. Tap "+ Register / Login" above to create a profile.
+        </div>`;
+        return;
+      }
+
+      container.innerHTML = items.map(item => {
+        const subOk = isSubscriptionActive(item);
+        const navUrl = item.coords ? `https://www.google.com/maps/dir/?api=1&destination=${item.coords[0]},${item.coords[1]}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address)}`;
+
+        return `
+          <div class="bg-white border ${subOk ? 'border-gray-200' : 'border-red-300 bg-red-50/30'} rounded-2xl p-3 shadow-sm space-y-2.5">
+            <div class="flex gap-3">
+              <img src="${item.photo}" class="w-20 h-20 rounded-xl object-cover shrink-0 bg-gray-100" />
+              <div class="flex-1 min-w-0">
+                <div class="flex items-start justify-between gap-1">
+                  <h4 class="text-sm font-extrabold text-gray-900 truncate">${item.name}</h4>
+                  ${!subOk ? `<span class="bg-red-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full shrink-0">Suspended</span>` : `<span class="bg-green-100 text-green-700 text-[9px] font-extrabold px-2 py-0.5 rounded-full shrink-0">${isOpenNow ? 'Open' : 'Closed'}</span>`}
+                </div>
+                <p class="text-[11px] text-gray-600 mt-0.5 line-clamp-2">${item.details}</p>
+                <p class="text-[11px] text-gray-500 mt-1"><i class="fa-solid fa-location-dot text-red-500 mr-1"></i>${item.address}</p>
+              </div>
+            </div>
+
+            ${subOk ? `
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <a href="tel:${item.phone}" class="bg-green-600 text-white font-bold py-2 rounded-xl text-xs text-center"><i class="fa-solid fa-phone mr-1"></i> Call Now</a>
+                <a href="${navUrl}" target="_blank" class="bg-gray-900 text-yellow-400 font-bold py-2 rounded-xl text-xs text-center"><i class="fa-solid fa-diamond-turn-right mr-1"></i> Map Location</a>
+              </div>
+            ` : `
+              <div class="bg-red-100 text-red-700 text-[11px] font-bold px-3 py-2 rounded-xl text-center">
+                <i class="fa-solid fa-ban mr-1"></i> Contact number &amp; map hidden due to inactive subscription.
+              </div>
+            `}
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 12. SUBSCRIPTION PAYMENT MODAL (1d / 7d / 1m + UPI QR + UTR PROOF)
+    let subTargetEntity = null;
+    let selectedSubPlanKey = '1d';
+
+    function openSubscriptionModalForDriver() {
+      if (!currentDriver) return;
+      subTargetEntity = {
+        role: 'driver',
+        phone: currentDriver.phone,
+        category: currentDriver.category,
+        name: currentDriver.name
+      };
+      openSubscriptionModalUI();
+    }
+
+    function openSubscriptionModalForCurrentProvider() {
+      if (!currentProvider) return;
+      subTargetEntity = {
+        role: 'provider',
+        phone: currentProvider.phone,
+        category: currentProvider.type,
+        name: currentProvider.name
+      };
+      openSubscriptionModalUI();
+    }
+
+    function openSubscriptionModalUI() {
+      const cat = subTargetEntity.category;
+      const p = appSettings.prices[cat] || { '1d': 20, '7d': 100, '1m': 350 };
+      document.getElementById('sub-modal-cat').innerText = cat;
+      document.getElementById('sub-price-1d').innerText = `₹${p['1d']}`;
+      document.getElementById('sub-price-7d').innerText = `₹${p['7d']}`;
+      document.getElementById('sub-price-1m').innerText = `₹${p['1m']}`;
+      document.getElementById('sub-upi-id-text').innerText = appSettings.upiId || 'publiccab@upi';
+      if (appSettings.upiQrUrl) {
+        document.getElementById('sub-upi-qr-img').src = appSettings.upiQrUrl;
+      }
+      selectSubDuration('1d');
+      document.getElementById('subscription-modal').classList.remove('hidden');
+    }
+
+    function selectSubDuration(dur) {
+      selectedSubPlanKey = dur;
+      ['1d', '7d', '1m'].forEach(d => {
+        const el = document.getElementById(`plan-card-${d}`);
+        el.className = d === dur
+          ? 'border-2 border-yellow-400 bg-yellow-50 p-2 rounded-xl cursor-pointer'
+          : 'border border-gray-200 p-2 rounded-xl cursor-pointer';
+      });
+    }
+
+    function copyUpiId() {
+      const text = document.getElementById('sub-upi-id-text').innerText;
+      const temp = document.createElement('input');
+      temp.value = text;
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand('copy');
+      document.body.removeChild(temp);
+      showToast('Copied!', `UPI ID (${text}) copied to clipboard.`);
+    }
+
+    function submitSubscriptionProof() {
+      const utr = document.getElementById('sub-utr-input').value.trim();
+      if (!utr) {
+        showToast('UTR Required', 'Please enter the 12-digit UTR / Transaction ID.');
+        return;
+      }
+      const cat = subTargetEntity.category;
+      const amount = (appSettings.prices[cat] || {})[selectedSubPlanKey] || 20;
+      const reqRef = db.ref('subscriptionRequests').push();
+      reqRef.set({
+        id: reqRef.key,
+        role: subTargetEntity.role,
+        phone: subTargetEntity.phone,
+        name: subTargetEntity.name,
+        category: cat,
+        duration: selectedSubPlanKey,
+        amount,
+        utr,
+        proofImg: uploadedImages.subProofBase64 || '',
+        status: 'pending',
+        createdAt: Date.now()
+      });
+      document.getElementById('subscription-modal').classList.add('hidden');
+      showInfoModal('Proof Submitted!', 'Your UTR & screenshot have been sent to Admin. Subscription will activate immediately after verification.');
+    }
+
+    // 13. SECRET ADMIN PANEL (5 CLICKS ON LOGO, PASSWORD: 78764825555)
+    let logoClickCount = 0;
+    let logoClickTimer = null;
+
+    function handleLogoClick() {
+      logoClickCount++;
+      clearTimeout(logoClickTimer);
+      logoClickTimer = setTimeout(() => { logoClickCount = 0; }, 2200);
+
+      if (logoClickCount >= 5) {
+        logoClickCount = 0;
+        document.getElementById('admin-pass-input').value = '';
+        document.getElementById('admin-auth-modal').classList.remove('hidden');
+      }
+    }
+
+    function verifyAdminLogin() {
+      const pass = document.getElementById('admin-pass-input').value.trim();
+      if (pass === '78764825555') {
+        document.getElementById('admin-auth-modal').classList.add('hidden');
+        openAdminDashboard();
+      } else {
+        showToast('Invalid Password', 'Incorrect Admin password!');
+      }
+    }
+
+    function openAdminDashboard() {
+      document.getElementById('admin-panel-overlay').classList.remove('hidden');
+      document.getElementById('admin-sub-master-toggle').checked = !!appSettings.subscriptionEnabled;
+      document.getElementById('adm-cab-schedule-toggle').checked = appSettings.cabScheduleEnabled !== false;
+      document.getElementById('adm-cab-open').value = appSettings.cabOpenTime || '03:30';
+      document.getElementById('adm-cab-close').value = appSettings.cabCloseTime || '00:10';
+      document.getElementById('adm-svc-open').value = appSettings.svcOpenTime || '09:30';
+      document.getElementById('adm-svc-close').value = appSettings.svcCloseTime || '21:30';
+      document.getElementById('adm-alarm-toggle').checked = !!appSettings.alarmEnabled;
+      document.getElementById('adm-alarm-msg').value = appSettings.alarmMessage || '';
+
+      document.getElementById('adm-app-title').value = appSettings.appName || 'Public Cab';
+      document.getElementById('adm-ad-text').value = appSettings.adText || '';
+      document.getElementById('adm-ad-url').value = appSettings.adUrl || '';
+      document.getElementById('adm-upi-id').value = appSettings.upiId || '';
+
+      const priceForm = document.getElementById('admin-category-prices-form');
+      priceForm.innerHTML = CATEGORIES.map(cat => {
+        const p = appSettings.prices[cat] || { '1d': 20, '7d': 100, '1m': 350 };
+        return `
+          <div class="grid grid-cols-4 gap-1.5 items-center bg-gray-50 p-2 rounded-xl border border-gray-200">
+            <span class="font-extrabold text-gray-800">${cat}</span>
+            <input type="number" id="adm-p-${cat}-1d" value="${p['1d']}" placeholder="1d" class="bg-white border rounded px-1.5 py-1 text-center font-bold" />
+            <input type="number" id="adm-p-${cat}-7d" value="${p['7d']}" placeholder="7d" class="bg-white border rounded px-1.5 py-1 text-center font-bold" />
+            <input type="number" id="adm-p-${cat}-1m" value="${p['1m']}" placeholder="1m" class="bg-white border rounded px-1.5 py-1 text-center font-bold" />
+          </div>
+        `;
+      }).join('');
+
+      renderAdminLists();
+    }
+
+    function switchAdminTab(tab) {
+      ['approvals', 'timing', 'subs', 'branding', 'all'].forEach(t => {
+        document.getElementById(`admin-sec-${t}`).classList.toggle('hidden', t !== tab);
+        document.getElementById(`admtab-${t}`).className = t === tab
+          ? 'py-2.5 border-b-2 border-yellow-500 text-gray-900'
+          : 'py-2.5 text-gray-500';
+      });
+    }
+
+    function saveAdminTimingsAndAlarm() {
+      const updates = {
+        cabScheduleEnabled: document.getElementById('adm-cab-schedule-toggle').checked,
+        cabOpenTime: document.getElementById('adm-cab-open').value || '03:30',
+        cabCloseTime: document.getElementById('adm-cab-close').value || '00:10',
+        svcOpenTime: document.getElementById('adm-svc-open').value || '09:30',
+        svcCloseTime: document.getElementById('adm-svc-close').value || '21:30',
+        alarmEnabled: document.getElementById('adm-alarm-toggle').checked,
+        alarmMessage: document.getElementById('adm-alarm-msg').value.trim()
+      };
+      db.ref('settings').update(updates);
+      showToast('Saved!', 'Service timings & customer alarm settings updated.');
+    }
+
+    function toggleMasterSubscription() {
+      const enabled = document.getElementById('admin-sub-master-toggle').checked;
+      db.ref('settings/subscriptionEnabled').set(enabled);
+      showToast('Subscription Mode', enabled ? 'Subscription system turned ON.' : 'Subscription system turned OFF (All Free).');
+    }
+
+    function saveAdminSubscriptionPrices() {
+      const newPrices = {};
+      CATEGORIES.forEach(cat => {
+        newPrices[cat] = {
+          '1d': parseInt(document.getElementById(`adm-p-${cat}-1d`).value, 10) || 20,
+          '7d': parseInt(document.getElementById(`adm-p-${cat}-7d`).value, 10) || 100,
+          '1m': parseInt(document.getElementById(`adm-p-${cat}-1m`).value, 10) || 350
+        };
+      });
+      db.ref('settings/prices').set(newPrices);
+      showToast('Saved!', 'Category subscription prices updated.');
+    }
+
+    function saveAdminBrandingAndSettings() {
+      const updates = {
+        appName: document.getElementById('adm-app-title').value.trim() || 'Public Cab',
+        adText: document.getElementById('adm-ad-text').value.trim(),
+        adUrl: document.getElementById('adm-ad-url').value.trim(),
+        upiId: document.getElementById('adm-upi-id').value.trim() || 'publiccab@upi'
+      };
+      if (uploadedImages.admLogoBase64) updates.logoUrl = uploadedImages.admLogoBase64;
+      if (uploadedImages.admBannerBase64) updates.bannerUrl = uploadedImages.admBannerBase64;
+      if (uploadedImages.admQrBase64) updates.upiQrUrl = uploadedImages.admQrBase64;
+
+      db.ref('settings').update(updates);
+      showToast('Updated!', 'Company logo, banner, ads & UPI details saved.');
+    }
+
+    function renderAdminLists() {
+      const pDrvEl = document.getElementById('admin-pending-drivers');
+      const pendingDrvs = Object.values(allDriversCache).filter(d => d.status === 'pending');
+      pDrvEl.innerHTML = pendingDrvs.length ? pendingDrvs.map(d => `
+        <div class="bg-white p-3 rounded-xl border border-gray-200 space-y-2">
+          <div class="flex items-center gap-2.5">
+            <img src="${d.photo}" class="w-10 h-10 rounded-full object-cover" />
+            <div>
+              <p class="font-extrabold">${d.name} (${d.category})</p>
+              <p class="text-gray-500">Phone: ${d.phone} | Vehicle: ${d.vehNo}</p>
+            </div>
+          </div>
+          ${d.nidPhoto ? `<img src="${d.nidPhoto}" class="w-full h-24 object-cover rounded-lg border" />` : ''}
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="db.ref('drivers/${d.phone}').update({status:'approved'})" class="bg-green-600 text-white font-bold py-1.5 rounded-lg">Approve</button>
+            <button onclick="db.ref('drivers/${d.phone}').remove()" class="bg-red-100 text-red-600 font-bold py-1.5 rounded-lg">Reject</button>
+          </div>
+        </div>
+      `).join('') : '<p class="text-gray-400">No pending driver applications</p>';
+
+      const pProvEl = document.getElementById('admin-pending-providers');
+      const pendingProvs = Object.values(allProvidersCache).filter(p => p.status === 'pending');
+      pProvEl.innerHTML = pendingProvs.length ? pendingProvs.map(p => `
+        <div class="bg-white p-3 rounded-xl border border-gray-200 space-y-2">
+          <p class="font-extrabold">${p.name} (${p.type})</p>
+          <p class="text-gray-600">${p.details} • ${p.address} (${p.phone})</p>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="db.ref('providers/${p.phone}').update({status:'approved'})" class="bg-green-600 text-white font-bold py-1.5 rounded-lg">Approve</button>
+            <button onclick="db.ref('providers/${p.phone}').remove()" class="bg-red-100 text-red-600 font-bold py-1.5 rounded-lg">Reject</button>
+          </div>
+        </div>
+      `).join('') : '<p class="text-gray-400">No pending shop/mechanic requests</p>';
+
+      const pSubEl = document.getElementById('admin-pending-subs');
+      const pendingSubs = Object.values(allSubRequestsCache).filter(s => s.status === 'pending');
+      pSubEl.innerHTML = pendingSubs.length ? pendingSubs.map(s => `
+        <div class="bg-white p-3 rounded-xl border border-yellow-400 space-y-2">
+          <p class="font-extrabold">${s.name} (${s.category}) - ₹${s.amount} (${s.duration})</p>
+          <p class="text-blue-700 font-bold">UTR: ${s.utr} | Phone: ${s.phone}</p>
+          ${s.proofImg ? `<img src="${s.proofImg}" class="w-full h-28 object-contain rounded border bg-gray-50" />` : ''}
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="approveSubscriptionRequest('${s.id}')" class="bg-green-600 text-white font-bold py-1.5 rounded-lg">Activate Plan</button>
+            <button onclick="db.ref('subscriptionRequests/${s.id}').update({status:'rejected'})" class="bg-red-100 text-red-600 font-bold py-1.5 rounded-lg">Reject</button>
+          </div>
+        </div>
+      `).join('') : '<p class="text-gray-400">No pending payment proofs</p>';
+
+      const allEl = document.getElementById('admin-all-entities');
+      const drvs = Object.values(allDriversCache);
+      const provs = Object.values(allProvidersCache);
+      allEl.innerHTML = [
+        ...drvs.map(d => `<div class="bg-white p-2.5 rounded-xl border flex justify-between items-center"><div><strong>[Driver - ${d.category}]</strong> ${d.name} (${d.phone})</div><span class="px-2 py-0.5 rounded bg-gray-100 font-bold">${d.status}</span></div>`),
+        ...provs.map(p => `<div class="bg-white p-2.5 rounded-xl border flex justify-between items-center"><div><strong>[${p.type}]</strong> ${p.name} (${p.phone})</div><span class="px-2 py-0.5 rounded bg-gray-100 font-bold">${p.status}</span></div>`)
+      ].join('') || '<p class="text-gray-400">No records found</p>';
+    }
+
+    function approveSubscriptionRequest(reqId) {
+      const req = allSubRequestsCache[reqId];
+      if (!req) return;
+      const days = req.duration === '1m' ? 30 : (req.duration === '7d' ? 7 : 1);
+      const expiry = Date.now() + days * 24 * 60 * 60 * 1000;
+      const targetPath = req.role === 'driver' ? `drivers/${req.phone}` : `providers/${req.phone}`;
+      db.ref(targetPath).update({ subExpiry: expiry });
+      db.ref(`subscriptionRequests/${reqId}`).update({ status: 'approved' });
+      showToast('Plan Activated', `${req.name}'s subscription activated for ${days} day(s).`);
+    }
+
+    // 14. NAVIGATION & HISTORY HELPERS
+    function switchRole(role) {
+      const isCust = role === 'customer';
+      document.getElementById('btn-customer').className = isCust ? 'px-3 py-1.5 rounded-full bg-yellow-400 text-gray-900 transition' : 'px-3 py-1.5 rounded-full text-white transition';
+      document.getElementById('btn-driver').className = !isCust ? 'px-3 py-1.5 rounded-full bg-yellow-400 text-gray-900 transition' : 'px-3 py-1.5 rounded-full text-white transition';
+      document.getElementById('header-subtitle').innerText = isCust ? 'Customer Mode' : 'Driver Partner Mode';
+
+      if (isCust) {
+        showMainTab('home');
+      } else {
+        ['customer-view', 'ambulance-view', 'lorry-view', 'service-view', 'history-view'].forEach(id => document.getElementById(id).classList.add('hidden'));
+        document.getElementById('driver-view').classList.remove('hidden');
+        playDriverWarningAudio();
+        if (currentDriver) refreshDriverDashboard();
+      }
+    }
+
+    function showMainTab(tab) {
+      document.getElementById('btn-customer').className = 'px-3 py-1.5 rounded-full bg-yellow-400 text-gray-900 transition';
+      document.getElementById('btn-driver').className = 'px-3 py-1.5 rounded-full text-white transition';
+      document.getElementById('header-subtitle').innerText = 'Customer Mode';
+
+      const views = {
+        home: 'customer-view',
+        ambulance: 'ambulance-view',
+        lorry: 'lorry-view',
+        service: 'service-view',
+        history: 'history-view'
+      };
+      document.getElementById('driver-view').classList.add('hidden');
+      Object.entries(views).forEach(([k, id]) => {
+        document.getElementById(id).classList.toggle('hidden', k !== tab);
+      });
+
+      document.querySelectorAll('.nav-tab-btn').forEach(btn => btn.classList.remove('text-yellow-600'));
+      const activeNav = document.getElementById(`nav-${tab}`);
+      if (activeNav) activeNav.classList.add('text-yellow-600');
+
+      if (tab === 'home' && custMap) setTimeout(() => custMap.invalidateSize(), 120);
+      if (tab === 'service') {
+        updateLoggedProviderBar();
+        renderServiceListings();
+        playServiceVoiceAnnouncement(currentServiceSubTab);
+      }
+      if (tab === 'history') renderCustomerHistory();
+    }
+
+    function renderCustomerHistory() {
+      const container = document.getElementById('customer-history-list');
+      if (!customerUser) {
+        container.innerHTML = `<div class="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center text-xs text-gray-500">Please login to view your ride history.</div>`;
+        return;
+      }
+      const myRides = Object.values(allRidesCache)
+        .filter(r => r.customerPhone === customerUser.phone)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      if (!myRides.length) {
+        container.innerHTML = `<div class="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center text-xs text-gray-500">No recent ride history found.</div>`;
+        return;
+      }
+
+      container.innerHTML = myRides.map(r => `
+        <div class="bg-white border border-gray-200 p-3 rounded-xl shadow-sm space-y-1 text-xs">
+          <div class="flex justify-between font-extrabold">
+            <span>${r.category} • ₹${r.fare} (${r.distanceKm || 2} km)</span>
+            <span class="uppercase text-[10px] px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">${r.status}</span>
+          </div>
+          <p class="text-gray-600">${r.pickup} ➔ ${r.drop}</p>
+        </div>
+      `).join('');
+    }
+
+    // BOOTSTRAP APP
+    window.addEventListener('DOMContentLoaded', () => {
+      updateCustomerLoginStrip();
+      initMaps();
+      startFirebaseSync();
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.getVoices();
+        window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+      }
+    });
+  </script>
+
+  <!-- Enhanced PWA install prompt -->
+  <div id="pwa-install-help" class="hidden fixed left-3 right-3 bottom-20 z-[100] bg-gray-900 text-white rounded-2xl shadow-2xl border border-yellow-400 p-3">
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-mobile-screen-button text-yellow-400 text-lg"></i>
+        <div>
+          <div class="font-extrabold text-sm">Install Public Cab App</div>
+          <div id="pwa-install-text" class="text-[11px] text-gray-300">Install for a full-screen app experience.</div>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button id="pwa-install-now" class="bg-yellow-400 text-gray-900 font-extrabold px-3 py-2 rounded-lg text-xs">Install</button>
+        <button onclick="document.getElementById('pwa-install-help').classList.add('hidden')" class="text-gray-300 px-2 py-1 text-xs">✕</button>
+      </div>
+    </div>
+  </div>
+
+
+<script>
+(function () {
+  let publicCabDeferredPrompt = null;
+  const isStandalone = () =>
+    window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+  function showInstallHelp(message) {
+    const box = document.getElementById('pwa-install-help');
+    const text = document.getElementById('pwa-install-text');
+    if (text && message) text.textContent = message;
+    if (box && !isStandalone()) box.classList.remove('hidden');
+  }
+
+  window.addEventListener('beforeinstallprompt', function (event) {
+    event.preventDefault();
+    publicCabDeferredPrompt = event;
+    showInstallHelp('Install Public Cab for a full-screen app experience.');
+  });
+
+  window.addEventListener('appinstalled', function () {
+    publicCabDeferredPrompt = null;
+    const box = document.getElementById('pwa-install-help');
+    if (box) box.classList.add('hidden');
+    if (typeof showToast === 'function') showToast('App Installed', 'Public Cab has been installed successfully.');
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const button = document.getElementById('pwa-install-now');
+    if (button) {
+      button.addEventListener('click', async function () {
+        if (isStandalone()) {
+          showInstallHelp('Public Cab is already installed on this device.');
+          return;
+        }
+        if (publicCabDeferredPrompt) {
+          publicCabDeferredPrompt.prompt();
+          try { await publicCabDeferredPrompt.userChoice; } catch (e) {}
+          publicCabDeferredPrompt = null;
+          return;
+        }
+        const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+        showInstallHelp(isIOS
+          ? 'On iPhone/iPad: tap Share, then choose “Add to Home Screen”.'
+          : 'Open this app in Chrome. Tap the three-dot menu and choose “Install app” or “Add to Home screen”.');
+      });
+    }
+
+    if (!isStandalone()) {
+      setTimeout(function () {
+        const existing = document.getElementById('install-banner');
+        if (existing) return;
+        showInstallHelp('Install Public Cab for quick access from your home screen.');
+      }, 1500);
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
